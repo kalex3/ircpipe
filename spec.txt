@@ -1,0 +1,150 @@
+# ircpipe
+
+sets up an irc connection, and not much more.
+
+## on connection
+
+- [x] connect
+- [ ] tls (optional cert validation)
+- [?] sasl plain (untested)
+- [x] set user and nick
+  - [ ] if in use, try alternate nick(s)
+  - [ ] if not specified, use random from pattern [a-z0-9]{8}
+- [ ] wait for motd/001-message
+- [ ] optionally, do an initial join?
+
+## in the background
+
+- respond to server pings
+- keep track of when we last received an irc mesasge; if t > $timeout, send ping ourselves.
+	(first implementation can just send a ping every $timeout (milli)seconds)
+	(should $timeout be the time between last message and send-ping or between last message and ping-reponse?)
+	- different timeouts:
+	  - ping interval
+	  - connect timeout
+	  - time between sent message and received response
+	  - send/recv block: invalid, due to polling
+
+## interfaces
+
+- read from stdin, write to stdout
+- cli for setting timeout, user/nick, server info, ...
+  - netcat-like (everything but host[{: }port] optional
+  - how to specify tls?
+  - how to specify auth?
+    - relatively secure password handling!
+
+
+## minor TODOs
+
+- make ping_iv and resp_to configurable
+- maybe allow HOST:PORT (nc doesn't)
+- check if port is valid
+- support ipv6
+- irc_poll: handle poll() EINTR (don't exit on nonfatal signal received)
+- handle user EOF
+- what to do when nick is taken
+  - use random nick
+  - use fallback nick (append '_')
+  - exit
+
+
+## future todos:
+- flood protection!
+- allow specifying multiple channels to join on startup
+- allow specifying alternate nicks
+- failover hosts?
+- read once before sending NICK and USER
+  (verify this is actually a problem)
+- port gethostbyname to getaddrinfo
+
+
+## dropped features (patches accepted)
+- nickserv: freenode and hackint support sasl, efenet neither. rest don't care.
+- sasl cert: don't care for it
+- optionally use socket instead of stdin/stdout?
+- checking responses to NICK, JOIN, CAP-REQ, AUTHENTICATE
+  for now, we're just assuming everything went ok.
+  - NICK/USER
+     ok: 001 (checked, to block further commands)
+     err: 432 433 436 437 <nick>
+  - JOIN
+     ok: JOIN <chan>
+     err: 471 473 474 475 403 405 437 <chan>
+  - CAP REQ/CAP END
+     ok: CAP <nick?> ACK
+     err: CAP <nick?> NAK
+     err: 421
+  - AUTHENTICATE
+     ok: 900 903 <nick>
+     err: 902 904 905 908 <nick>
+
+
+## for responses
+
+we need to check and handle multiple responses to commands we've send:
+- ping: pong (everytime, everywhere. keep current hack)
+- sasl: cap-ack, 900+903 or 90x (when authenticating, during setup)
+- (after connecting/authenticating): 001, nick-in-use (everytime, during setup)
+
+the server may send unrelated responses in-between - including pings - and we
+want to enforce a timeout in which we expect the response (2000ms).
+
+
+essentially, we send a command, then block until we receive a response or an error.
+commands we send that we need to wait for are:
+ - PING
+    ok: PONG :<whatever>
+
+{{{
+enum {
+	PONG    = 1<<0,
+	CAP_ACK = 1<<1,
+	CAP_NAK = 1<<2,
+	N001    = 1<<3,
+	N900    = 1<<4,
+	N903    = 1<<5,
+	N904    = 1<<6
+	/*...*/
+};
+enum { PING, CAP_REQ, 
+int irc_waitfor(const int sockfd, const unsigned int pattern) {
+	// block until one of the specified """patterns""" has been seen (or 2s timeout has been reached).
+	// we need to be able to handle:
+	// - ^PONG( :.+)?
+	//   we aren't really interested in the response really
+	// - ^(\d\d\d) 
+	//   for each command, we want to know which numeric of a limited set was returned
+	// - ^CAP \S* (ACK|NAK)
+	//   ack/nak is enough
+	// - maybe other ones in the future
+
+	unsigned int seen = 0;
+
+	while (timer < 2000ms) {
+		if (poll(fds, 1, 2000)) {
+			/* relay whatever we got */
+			n = read(sockfd, buf, BUFSIZ);
+			write(outfd, buf, n);
+
+			/* parse */
+			line = strtok_r(buf, "\n", &saveptr);
+			do {
+				/* skip over prefix (servername): */
+				if (line[0] == ':') while (*line++ != ' ');
+
+				/* match patterns: */
+				if (pattern & PONG) seen |= (strncmp(line, "PONG ", 5) == 0) & PONG;
+				if (pattern & (CAP_ACK|CAP_NAK) && (strncmp(line, "CAP ", 4) == 0)) {
+					seen |= (strstr(line, " ACK :") != NULL) & CAP_ACK;
+					seen |= (strstr(line, " NAK :") != NULL) & CAP_NAK;
+				}
+
+				/* reply to pings: todo */
+			} while (line = strtok_r(NULL, "\n", &saveptr));
+		}
+	}
+
+	return seen;
+}
+}}}
