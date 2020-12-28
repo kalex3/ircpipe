@@ -25,6 +25,12 @@
 #define OR_DIE < 0 && (perror(__FILE__ ":" STR(__LINE__)), exit(1), 0)
 #define OR_DIE_h == NULL && (herror(__FILE__ ":" STR(__LINE__)), exit(1), 0)
 
+enum pass_type_e {
+	NO_PASSWD,
+	SERVER_PASSWD,
+	SASL_PLAIN_PASSWD,
+};
+
 void irc_help(const char *exe, const int code) {
 	fprintf(stderr, "Usage: %s [-n NICK] [-j CHAN] HOST [PORT]\n", exe);
 	exit(code);
@@ -96,22 +102,23 @@ int irc_base64(char *buf, int n) {
 	return l;
 }
 
-int irc_setup(const int sockfd, const int outfd, const char *nick, const char *pass, const char *chan) {
+int irc_setup(const int sockfd, const int outfd, const char *nick, const char *pass, int pass_type, const char *chan) {
 	char buf[BUFSIZ];
 	int n;
 	struct pollfd fds[1];
 	fds[0].fd = sockfd;
 	fds[0].events = POLLIN;
 
-	if (pass) { /* SASL as per IRCv3 */
+	if (pass_type == SASL_PLAIN_PASSWD) {
 		dprintf(sockfd, "CAP REQ :sasl\r\n");
+	} else if (pass_type == SERVER_PASSWD) {
+		dprintf(sockfd, "PASS %s\r\n", pass);
 	}
 
 	dprintf(sockfd, "NICK %s\r\n", nick);
 	dprintf(sockfd, "USER %s 0.0.0.0 %s :%s\r\n", nick, nick, nick);
 
-	/* SASL-PLAIN, IRCv3 */
-	if (pass) {
+	if (pass_type == SASL_PLAIN_PASSWD) {
 		/* should wait for 'CAP <nick|*> ACK :<...>' */
 		dprintf(sockfd, "AUTHENTICATE PLAIN\r\n");
 		/* server sends 'AUTHENTICATE +' */
@@ -191,15 +198,20 @@ int main(int argc, char **argv) {
 	size_t ping_iv = DEFAULT_PING;  /* interval between outgoing pings */
 	size_t resp_to = DEFAULT_TIMEOUT; /* how long to wait for command response (connect, ping, auth, ...) */
 	int tls = DEFAULT_TLS;
+	int pass_type = NO_PASSWD;
 
 	int sockfd;
 	int rv;
 
 	int opt; opterr = 0;
+
+	pass = getenv("IRC_PASSWD");
+
 	while ((opt = getopt(argc, argv, "n:j:psh")) != -1) {
 		switch (opt) {
 		case 'n': nick = optarg; break;
-		case 'p': pass = getenv("IRC_PASSWD"); break;
+		case 'p': pass_type = SERVER_PASSWD; break;
+		case 'P': pass_type = SASL_PLAIN_PASSWD; break;
 		case 's': tls = 1; break;
 		case 'S': tls = 0; break;
 		case 'j': chan = optarg; break;
@@ -221,10 +233,15 @@ int main(int argc, char **argv) {
 		irc_help(argv[0], 1);
 	}
 
+	if (pass_type != NO_PASSWD && pass == NULL) {
+		fprintf(stderr, "must set IRC_PASSWD envvar to use -p/-P\n");
+		exit(1);
+	}
+
 	printf("\033[91mconnecting to %s:%hd as %s, joining %s\033[0m\n", host, port, nick, chan);
 	sockfd = irc_connect(host, port); sockfd OR_DIE;
 	printf("\033[91mirc_setup...\033[0m\n", host, port, nick, chan);
-	irc_setup(sockfd, 1, nick, pass, chan) OR_DIE;
+	irc_setup(sockfd, 1, nick, pass, pass_type, chan) OR_DIE;
 	printf("\033[91mirc_poll...\033[0m\n", host, port, nick, chan);
 	rv = irc_poll(sockfd, 0, 1);
 	irc_cleanup(sockfd);
