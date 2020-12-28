@@ -88,7 +88,6 @@ int irc_answer(const int sockfd, char *buf, const unsigned int command) {
 		if (line[0] == ':')
 			while (*line++ != ' ');
 
-		printf("\033[92m>>>%s<<<\033[0m\n", line);
 		/* look for command responses, if any: */
 		switch (command) {
 		case PING: seen |= PING * (strncmp(line, "PONG ", 5)==0); break;
@@ -103,7 +102,6 @@ int irc_answer(const int sockfd, char *buf, const unsigned int command) {
 		}
 	} while (line = strtok_r(NULL, "\n", &saveptr));
 
-	printf("\033[91mseen=%d\033[0m\n", seen);
 	return seen;
 }
 
@@ -263,11 +261,8 @@ int main(int argc, char **argv) {
 		exit(1);
 	}
 
-	printf("\033[91mconnecting to %s:%hd as %s, joining %s\033[0m\n", host, port, nick, chan);
 	sockfd = irc_connect(host, port); sockfd OR_DIE;
-	printf("\033[91mirc_setup...\033[0m\n", host, port, nick, chan);
 	irc_setup(sockfd, 1, nick, pass, pass_type, chan) OR_DIE;
-	printf("\033[91mirc_poll...\033[0m\n", host, port, nick, chan);
 	rv = irc_poll(sockfd, 0, 1);
 	irc_cleanup(sockfd);
 
