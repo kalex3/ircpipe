@@ -154,7 +154,7 @@ int irc_poll(const int sockfd, const int infd, const int outfd) {
 	struct pollfd fds[2];
 	fds[IRC].fd = sockfd;
 	fds[IRC].events = POLLIN;
-	fds[CLI].fd = sockfd;
+	fds[CLI].fd = infd;
 	fds[CLI].events = POLLIN;
 
 	for (;;) {
