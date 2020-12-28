@@ -1,5 +1,4 @@
-#define _POSIX_C_SOURCE 200809L /* getopt(>=2), gethostbyname(>=200809L), dprintf(>=200809L), strtok_r(*) */
-#define _DEFAULT_SOURCE /* herror(*) */
+#define _POSIX_C_SOURCE 200809L /* getopt(>=2), dprintf(>=200809L), strtok_r(*), getaddrinfo(>=200112L) */
 #include <netdb.h>
 #include <poll.h>
 #include <stdio.h>
@@ -8,22 +7,25 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#ifndef NO_TLS
+#include <netdb.h>
+
+#ifndef WITHOUT_TLS
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #endif
 
-#define DEFAULT_PORT 6667
 #define DEFAULT_PING 60000 /*ms*/
 #define DEFAULT_TIMEOUT 2000 /*ms*/
-#define DEFAULT_TLS 0 /*off*/
+#define DEFAULT_TLS NO_TLS
+#define DEFAULT_PORT_PLAIN "6667"
+#define DEFAULT_PORT_TLS "6697"
 
 #define POLL_TIMEOUT 100
 
 #define STR_(x) #x
 #define STR(x) STR_(x)
 #define OR_DIE < 0 && (perror(__FILE__ ":" STR(__LINE__)), exit(1), 0)
-#define OR_DIE_h == NULL && (herror(__FILE__ ":" STR(__LINE__)), exit(1), 0)
+#define OR_DIE_gai(err) if (err) {fprintf(stderr, __FILE__ ":" STR(__LINE__) ": %s\n", gai_strerror(err));exit(1);}
 
 enum pass_type_e {
 	NO_PASSWD,
@@ -31,26 +33,44 @@ enum pass_type_e {
 	SASL_PLAIN_PASSWD,
 };
 
+enum tls_use_e {
+	NO_TLS,
+	USE_TLS,
+	INSECURE_TLS,
+};
+
 void irc_help(const char *exe, const int code) {
 	fprintf(stderr, "Usage: %s [-n NICK] [-j CHAN] HOST [PORT]\n", exe);
 	exit(code);
 }
 
-int irc_connect(const char *host, const unsigned short port) {
+int irc_connect(const char *host, const char *port) {
 	int sockfd;
-	struct sockaddr_in addr = {0};
-	struct hostent *host_e;
+	struct addrinfo *results, *r;
 
-	host_e = gethostbyname(host); host_e OR_DIE_h;
+	fprintf(stderr, "%s : %s\n", host,port);
+	int err = getaddrinfo(host, port, NULL, &results); OR_DIE_gai(err); /*unable to resolve*/
 
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(port);
-	addr.sin_addr = *((struct in_addr *)host_e->h_addr_list[0]);
+	for (r = results; r != NULL; r = r->ai_next) {
+		sockfd = socket(r->ai_family, SOCK_STREAM, 0);
+		if (sockfd < 0) continue; /* try next; todo: should check errno */
 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0); sockfd OR_DIE;
-	/* tls here */
-	/* connect timeout here */
-	connect(sockfd, (struct sockaddr *)&addr, sizeof(addr)) OR_DIE;
+		if (connect(sockfd, r->ai_addr, r->ai_addrlen) == 0)
+			break; /* successfully connected */
+
+		close(sockfd); /* failed, try next addr */
+	}
+
+	if (r == NULL) {
+		/* all failed; abort. */
+		sockfd = -1;
+	} else {
+		/* connection established. */
+		/* tls here */
+		/* connect timeout here */
+	}
+
+	freeaddrinfo(results);
 	return sockfd;
 }
 
@@ -191,10 +211,10 @@ void irc_cleanup(const int sockfd) {
 
 int main(int argc, char **argv) {
 	char *host = NULL;
+	char *port = NULL;
 	char *nick = NULL;
 	char *pass = NULL;
 	char *chan = NULL;
-	unsigned short port = DEFAULT_PORT;
 	size_t ping_iv = DEFAULT_PING;  /* interval between outgoing pings */
 	size_t resp_to = DEFAULT_TIMEOUT; /* how long to wait for command response (connect, ping, auth, ...) */
 	int tls = DEFAULT_TLS;
@@ -207,13 +227,14 @@ int main(int argc, char **argv) {
 
 	pass = getenv("IRC_PASSWD");
 
-	while ((opt = getopt(argc, argv, "n:j:psh")) != -1) {
+	while ((opt = getopt(argc, argv, "n:j:pPsSkh")) != -1) {
 		switch (opt) {
 		case 'n': nick = optarg; break;
 		case 'p': pass_type = SERVER_PASSWD; break;
 		case 'P': pass_type = SASL_PLAIN_PASSWD; break;
-		case 's': tls = 1; break;
-		case 'S': tls = 0; break;
+		case 's': tls = USE_TLS; break;
+		case 'S': tls = NO_TLS; break;
+		case 'k': tls = INSECURE_TLS; break;
 		case 'j': chan = optarg; break;
 		default: irc_help(argv[0], opt != 'h');
 		}
@@ -226,7 +247,11 @@ int main(int argc, char **argv) {
 		irc_help(argv[0], 1);
 	}
 	if (optind < argc) {
-		port = atoi(argv[optind++]);
+		port = argv[optind++];
+	} else {
+		port = (tls == NO_TLS)
+			? DEFAULT_PORT_PLAIN
+			: DEFAULT_PORT_TLS;
 	}
 	if (optind < argc) {
 		/* too many positional arguments */
