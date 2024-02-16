@@ -9,10 +9,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
-#ifndef WITHOUT_TLS
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#endif
+#include <tls.h>
 
 #define DEFAULT_PING 60000 /*ms*/
 #define DEFAULT_TIMEOUT 2000 /*ms*/
@@ -26,52 +23,85 @@
 #define STR(x) STR_(x)
 #define OR_DIE < 0 && (perror(__FILE__ ":" STR(__LINE__)), exit(1), 0)
 #define OR_DIE_gai(err) if (err) {fprintf(stderr, __FILE__ ":" STR(__LINE__) ": %s\n", gai_strerror(err));exit(1);}
+#define OR_DIE_tls(ctx) < 0 && (exit((fprintf(stderr, __FILE__ ":" STR(__LINE__) ": %s\n", tls_error(ctx)), 1)), 0)
 
 enum pass_type_e {
 	NO_PASSWD,
 	SERVER_PASSWD,
-	SASL_PLAIN_PASSWD,
+	SASL_PLAIN_PASSWD
 };
 
 enum tls_use_e {
 	NO_TLS,
 	USE_TLS,
-	INSECURE_TLS,
+	INSECURE_TLS
 };
+
+typedef struct {
+	int fd; /* always contains the underlying file descriptor */
+	struct tls *tls; /* tls context, or NULL with plain socket */
+} sock_t;
+#define _IMPLFN(fn, sock, buf, sz) (    \
+	sock.tls                        \
+	? tls_ ## fn(sock.tls, buf, sz) \
+	: fn(sock.fd, buf, sz)          \
+)
+#define READ(sock, buf, sz) _IMPLFN(read, sock, buf, sz)
+#define WRITE(sock, buf, sz) _IMPLFN(write, sock, buf, sz)
 
 void irc_help(const char *exe, const int code) {
 	fprintf(stderr, "Usage: %s [-n NICK] [-j CHAN] HOST [PORT]\n", exe);
 	exit(code);
 }
 
-int irc_connect(const char *host, const char *port) {
-	int sockfd;
+sock_t irc_connect(const char *host, const char *port, const int tls, const char *ca_file) {
+	sock_t sock;
 	struct addrinfo *results, *r;
 
-	fprintf(stderr, "%s : %s\n", host,port);
 	int err = getaddrinfo(host, port, NULL, &results); OR_DIE_gai(err); /*unable to resolve*/
 
 	for (r = results; r != NULL; r = r->ai_next) {
-		sockfd = socket(r->ai_family, SOCK_STREAM, 0);
-		if (sockfd < 0) continue; /* try next; todo: should check errno */
+		sock.fd = socket(r->ai_family, SOCK_STREAM, 0);
+		if (sock.fd < 0) continue; /* try next; todo: should check errno */
 
-		if (connect(sockfd, r->ai_addr, r->ai_addrlen) == 0)
+		if (connect(sock.fd, r->ai_addr, r->ai_addrlen) == 0)
 			break; /* successfully connected */
 
-		close(sockfd); /* failed, try next addr */
+		close(sock.fd); /* failed, try next addr */
 	}
 
 	if (r == NULL) {
 		/* all failed; abort. */
-		sockfd = -1;
+		sock.fd = -1;
 	} else {
 		/* connection established. */
-		/* tls here */
+		if (tls != NO_TLS) {
+			struct tls *ctx = tls_client();
+			struct tls_config *cfg = tls_config_new();
+
+			if (tls == INSECURE_TLS) {
+				tls_config_insecure_noverifycert(cfg);
+				tls_config_insecure_noverifyname(cfg);
+				tls_config_insecure_noverifytime(cfg);
+				tls_config_set_ciphers(cfg, "legacy"); /* even more: 'insecure' */
+			}
+			tls_config_set_dheparams(cfg, "auto") OR_DIE_tls(ctx); /* default is 'none' */
+			if (ca_file) tls_config_set_ca_file(cfg, ca_file) OR_DIE_tls(ctx);
+			/* todo: if ca_file ends in /, call tls_config_set_ca_path() instead */
+			/* todo: otherwise, set to tls_default_ca_cert_file() iff libtls (not libretls) */
+
+			tls_configure(ctx, cfg) OR_DIE_tls(ctx);
+			tls_config_free(cfg);
+			tls_connect_socket(ctx, sock.fd, host) OR_DIE_tls(ctx);
+			tls_handshake(ctx) OR_DIE_tls(ctx);
+
+			sock.tls = ctx;
+		} else sock.tls = NULL;
 		/* connect timeout here */
 	}
 
 	freeaddrinfo(results);
-	return sockfd;
+	return sock;
 }
 
 enum { /* requested command: */
@@ -79,14 +109,14 @@ enum { /* requested command: */
 	NICK = 1<<1,
 	PING = 1<<2
 };
-int irc_answer(const int sockfd, char *buf, const unsigned int command) {
+int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 	unsigned int seen = 0;
 	char *saveptr;
 	char *line = strtok_r(buf, "\n", &saveptr);
 	do {
 		/* skip over prefix (servername): */
 		if (line[0] == ':')
-			while (*line++ != ' ');
+			while (*line++ != ' '); /*todo: check truncation(\0)*/
 
 		/* look for command responses, if any: */
 		switch (command) {
@@ -97,10 +127,10 @@ int irc_answer(const int sockfd, char *buf, const unsigned int command) {
 		/* reply to pings: */
 		if (strncmp(line, "PING ", 5) == 0) {
 			line[1] = 'O'; /* PING :foo -> PONG :foo */
-			write(sockfd, line, strlen(line));
-			write(sockfd, "\r\n", 2);
+			WRITE(sock, line, strlen(line));
+			WRITE(sock, "\r\n", 2);
 		}
-	} while (line = strtok_r(NULL, "\n", &saveptr));
+	} while ((line = strtok_r(NULL, "\n", &saveptr)));
 
 	return seen;
 }
@@ -120,57 +150,66 @@ int irc_base64(char *buf, int n) {
 	return l;
 }
 
-int irc_setup(const int sockfd, const int outfd, const char *nick, const char *pass, int pass_type, const char *chan) {
+int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *pass, int pass_type, const char *chan) {
 	char buf[BUFSIZ];
 	int n;
 	struct pollfd fds[1];
-	fds[0].fd = sockfd;
+	fds[0].fd = sock.fd;
 	fds[0].events = POLLIN;
 
 	if (pass_type == SASL_PLAIN_PASSWD) {
-		dprintf(sockfd, "CAP REQ :sasl\r\n");
+		n = snprintf(buf, BUFSIZ, "CAP REQ :sasl\r\n");
+		WRITE(sock, buf, n);
 	} else if (pass_type == SERVER_PASSWD) {
-		dprintf(sockfd, "PASS %s\r\n", pass);
+		n = snprintf(buf, BUFSIZ, "PASS %s\r\n", pass);
+		WRITE(sock, buf, n);
 	}
 
-	dprintf(sockfd, "NICK %s\r\n", nick);
-	dprintf(sockfd, "USER %s 0.0.0.0 %s :%s\r\n", nick, nick, nick);
+	n = snprintf(buf, BUFSIZ, "NICK %s\r\n", nick);
+	WRITE(sock, buf, n);
+	n = snprintf(buf, BUFSIZ, "USER %s 0.0.0.0 %s :%s\r\n", nick, nick, nick);
+	WRITE(sock, buf, n);
 
 	if (pass_type == SASL_PLAIN_PASSWD) {
+		int n2;
 		/* should wait for 'CAP <nick|*> ACK :<...>' */
-		dprintf(sockfd, "AUTHENTICATE PLAIN\r\n");
+		WRITE(sock, "AUTHENTICATE PLAIN\r\n", 20);
 		/* server sends 'AUTHENTICATE +' */
 		/* split base64-output into 400 byte chunks; if last is exactly
 		   400 bytes, send empty msg ('+') afterwards */
-		n = snprintf(buf, BUFSIZ, "%s%c%s%c%s", nick, 0, nick, 0, pass);
-		irc_base64(buf, n) OR_DIE;
-		dprintf(sockfd, "AUTHENTICATE %s\r\n", buf);
+		n = snprintf(buf, BUFSIZ, "AUTHENTICATE ");
+		n2 = snprintf(buf+n, BUFSIZ-n, "%s%c%s%c%s", nick, 0, nick, 0, pass);
+		irc_base64(buf+n, n2) OR_DIE;
+		snprintf(buf+n+n2, BUFSIZ-n-n2, "\r\n");
+		WRITE(sock, buf, n+n2+2);
 		/* wait for response 900+903 (ok) or 904 (err) */
-		dprintf(sockfd, "CAP END\r\n");
+		WRITE(sock, "CAP END\r\n", 9);
 	}
 
 	/* block until we get a RPL_WELCOME: */
 	for (;;) {
 		if (poll(fds, 1, POLL_TIMEOUT)) {
-			n = read(sockfd, buf, BUFSIZ);
+			n = READ(sock, buf, BUFSIZ);
 			write(outfd, buf, n);
-			if (irc_answer(sockfd, buf, NICK) & NICK) break;
+			if (irc_answer(sock, buf, NICK) & NICK) break;
+	/* todo: if SERVER_PASSWD is wrong, we get error code 464 instead of NICK/001*/
 		}
 	}
 
 	if (chan) {
-		dprintf(sockfd, "JOIN %s\r\n", chan);
+		n = snprintf(buf, BUFSIZ, "JOIN %s\r\n", chan);
+		WRITE(sock, buf, n);
 	}
 
 	return 0;
 }
 
-int irc_poll(const int sockfd, const int infd, const int outfd) {
+int irc_poll(const sock_t sock, const int infd, const int outfd) {
 	int n;
 	char buf[BUFSIZ];
 	enum { IRC, CLI };
 	struct pollfd fds[2];
-	fds[IRC].fd = sockfd;
+	fds[IRC].fd = sock.fd;
 	fds[IRC].events = POLLIN;
 	fds[CLI].fd = infd;
 	fds[CLI].events = POLLIN;
@@ -179,17 +218,18 @@ int irc_poll(const int sockfd, const int infd, const int outfd) {
 		poll(fds, 2, POLL_TIMEOUT) OR_DIE;
 
 		/* XXX: long responses don't get fully processed until user input */
+		/* XXX: must handle TLS_WANT_POLLIN and TLS_WANT_POLLOUT for READ and WRITE! */
 		if (fds[IRC].revents & POLLIN) {
-			n = read(sockfd, buf, BUFSIZ);
+			n = READ(sock, buf, BUFSIZ);
 			if (n == 0) return -1; /* server closed connection */
 			write(outfd, buf, n);
-			irc_answer(sockfd, buf, NO_CMD);
+			irc_answer(sock, buf, NO_CMD);
 			/* update last-msg-rcvd here */
 		}
 		if (fds[CLI].revents & POLLIN) {
 			n = read(infd, buf, BUFSIZ);
 			if (n == 0) return 0; /* we closed connection */
-			write(sockfd, buf, n);
+			WRITE(sock, buf, n);
 		}
 
 		/* send ping here */
@@ -201,10 +241,11 @@ int irc_poll(const int sockfd, const int infd, const int outfd) {
 	}
 }
 
-void irc_cleanup(const int sockfd) {
-	write(sockfd, "QUIT :ircpipe\r\n", 15);
-	shutdown(sockfd, SHUT_RDWR);
-	close(sockfd);
+void irc_cleanup(const sock_t sock) {
+	WRITE(sock, "QUIT :ircpipe\r\n", 15);
+	if (sock.tls) tls_close(sock.tls);
+	shutdown(sock.fd, SHUT_RDWR);
+	close(sock.fd);
 }
 
 int main(int argc, char **argv) {
@@ -216,14 +257,16 @@ int main(int argc, char **argv) {
 	size_t ping_iv = DEFAULT_PING;  /* interval between outgoing pings */
 	size_t resp_to = DEFAULT_TIMEOUT; /* how long to wait for command response (connect, ping, auth, ...) */
 	int tls = DEFAULT_TLS;
+	char *ca_file = NULL;
 	int pass_type = NO_PASSWD;
 
-	int sockfd;
+	sock_t sock;
 	int rv;
 
 	int opt; opterr = 0;
 
 	pass = getenv("IRC_PASSWD");
+	ca_file = getenv("IRC_CAFILE");
 
 	while ((opt = getopt(argc, argv, "n:j:pPsSkh")) != -1) {
 		switch (opt) {
@@ -242,6 +285,7 @@ int main(int argc, char **argv) {
 		host = argv[optind++];
 	} else {
 		/* too few positional arguments */
+		fprintf(stderr, "missing HOST\n");
 		irc_help(argv[0], 1);
 	}
 	if (optind < argc) {
@@ -253,6 +297,7 @@ int main(int argc, char **argv) {
 	}
 	if (optind < argc) {
 		/* too many positional arguments */
+		fprintf(stderr, "too many args\n");
 		irc_help(argv[0], 1);
 	}
 
@@ -261,10 +306,10 @@ int main(int argc, char **argv) {
 		exit(1);
 	}
 
-	sockfd = irc_connect(host, port); sockfd OR_DIE;
-	irc_setup(sockfd, 1, nick, pass, pass_type, chan) OR_DIE;
-	rv = irc_poll(sockfd, 0, 1);
-	irc_cleanup(sockfd);
+	sock = irc_connect(host, port, tls, ca_file); sock.fd OR_DIE;
+	irc_setup(sock, 1, nick, pass, pass_type, chan) OR_DIE;
+	rv = irc_poll(sock, 0, 1);
+	irc_cleanup(sock);
 
 	return (rv < 0);
 }

@@ -1,4 +1,4 @@
-CFLAGS=-Wall -Wpedantic -std=c89 -g
+CFLAGS=-Wall -Wpedantic -std=c89 -g -ltls
 ircpipe: ircpipe.c
 
 .PHONY: test
