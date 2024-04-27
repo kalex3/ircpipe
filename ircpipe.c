@@ -116,7 +116,7 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 	do {
 		/* skip over prefix (servername): */
 		if (line[0] == ':')
-			while (*line++ != ' '); /*todo: check truncation(\0)*/
+			while (*line && *line++ != ' ');
 
 		/* look for command responses, if any: */
 		switch (command) {
