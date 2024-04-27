@@ -50,7 +50,7 @@ typedef struct {
 #define WRITE(sock, buf, sz) _IMPLFN(write, sock, buf, sz)
 
 void irc_help(const char *exe, const int code) {
-	fprintf(stderr, "Usage: %s [-n NICK] [-j CHAN] HOST [PORT]\n", exe);
+	fprintf(stderr, "Usage: %s [-pP] [-sSk] [-n NICK] [-j CHAN] HOST [PORT]\n", exe);
 	exit(code);
 }
 
@@ -85,7 +85,7 @@ sock_t irc_connect(const char *host, const char *port, const int tls, const char
 				tls_config_insecure_noverifytime(cfg);
 				tls_config_set_ciphers(cfg, "legacy"); /* even more: 'insecure' */
 			}
-			tls_config_set_dheparams(cfg, "auto") OR_DIE_tls(ctx); /* default is 'none' */
+			tls_config_set_dheparams(cfg, "auto") OR_DIE_tls(ctx);
 			if (ca_file) tls_config_set_ca_file(cfg, ca_file) OR_DIE_tls(ctx);
 			/* todo: if ca_file ends in /, call tls_config_set_ca_path() instead */
 			/* todo: otherwise, set to tls_default_ca_cert_file() iff libtls (not libretls) */
