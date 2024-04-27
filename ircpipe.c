@@ -222,6 +222,7 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 		if (fds[IRC].revents & POLLIN) {
 			n = READ(sock, buf, BUFSIZ);
 			if (n == 0) return -1; /* server closed connection */
+			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
 			write(outfd, buf, n);
 			irc_answer(sock, buf, NO_CMD);
 			/* update last-msg-rcvd here */
@@ -229,8 +230,14 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 		if (fds[CLI].revents & POLLIN) {
 			n = read(infd, buf, BUFSIZ);
 			if (n == 0) return 0; /* we closed connection */
-			WRITE(sock, buf, n);
+			n = WRITE(sock, buf, n);
+			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
 		}
+		if (fds[IRC].revents & POLLOUT) { /* needed for TLS only */
+			n = WRITE(sock, buf, n);
+			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
+		}
+		/* TODO: if read/write on either irc or cli returns -1 and errno is EAGAIN or EINTR, retry. otherwise, return with error */
 
 		/* send ping here */
 		/*
