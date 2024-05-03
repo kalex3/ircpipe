@@ -152,7 +152,7 @@ int irc_base64(char *buf, int n) {
 
 int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *pass, int pass_type, const char *chan) {
 	char buf[BUFSIZ];
-	int n, mode = 0; /* mode: 1<<3=invisible | 1<<2=wallops */
+	int n;
 	struct pollfd fds[1];
 	fds[0].fd = sock.fd;
 	fds[0].events = POLLIN;
@@ -167,7 +167,7 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 
 	n = snprintf(buf, BUFSIZ, "NICK %s\r\n", nick);
 	WRITE(sock, buf, n);
-	n = snprintf(buf, BUFSIZ, "USER %s %d * :%s\r\n", nick, mode, nick);
+	n = snprintf(buf, BUFSIZ, "USER ~%s 0 * :%s\r\n", nick, nick);
 	WRITE(sock, buf, n);
 
 	if (pass_type == SASL_PLAIN_PASSWD) {
