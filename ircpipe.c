@@ -14,7 +14,7 @@
 #define DEFAULT_PING 60000 /*ms*/
 #define DEFAULT_TIMEOUT 2000 /*ms*/
 #define DEFAULT_TLS NO_TLS
-#define DEFAULT_PORT_PLAIN "6667"
+#define DEFAULT_PORT_TCP "6667"
 #define DEFAULT_PORT_TLS "6697"
 
 #define POLL_TIMEOUT 100
@@ -299,7 +299,7 @@ int main(int argc, char **argv) {
 		port = argv[optind++];
 	} else {
 		port = (tls == NO_TLS)
-			? DEFAULT_PORT_PLAIN
+			? DEFAULT_PORT_TCP
 			: DEFAULT_PORT_TLS;
 	}
 	if (optind < argc) {
