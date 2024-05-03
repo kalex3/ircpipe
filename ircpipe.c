@@ -167,7 +167,7 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 
 	n = snprintf(buf, BUFSIZ, "NICK %s\r\n", nick);
 	WRITE(sock, buf, n);
-	n = snprintf(buf, BUFSIZ, "USER ~%s 0 * :%s\r\n", nick, nick);
+	n = snprintf(buf, BUFSIZ, "USER %s 0 * :%s\r\n", nick, nick);
 	WRITE(sock, buf, n);
 
 	if (pass_type == SASL_PLAIN_PASSWD) {
