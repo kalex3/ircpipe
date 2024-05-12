@@ -24,7 +24,6 @@
 #define OR_DIE < 0 && (perror(__FILE__ ":" STR(__LINE__)), exit(1), 0)
 #define OR_DIE_gai(err) if (err) {fprintf(stderr, __FILE__ ":" STR(__LINE__) ": %s\n", gai_strerror(err));exit(1);}
 #define OR_DIE_tls(ctx) < 0 && (exit((fprintf(stderr, __FILE__ ":" STR(__LINE__) ": %s\n", tls_error(ctx)), 1)), 0)
-#define OR_DIE_irc < 0 && (exit((fprintf(stderr, __FILE__ ":" STR(__LINE__) ": %s\n", "got IRC error"), 1)), 0)
 
 enum pass_type_e {
 	NO_PASSWD,
@@ -115,14 +114,14 @@ enum { /* requested command: */
 int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 	unsigned int seen = 0;
 	char *saveptr;
-	char *line = strtok_r(buf, "\n", &saveptr);
+	char *line = strtok_r(buf, "\r\n", &saveptr);
 	/*TODO: it often happens that we take multiple calls to read() all the available lines (e.g. large motd, NAMES message). when this happens, one call to read() will return an incomplete line, and the next will start in the middle of a line. this can't be parsed properly! we need to check if the last line ends with a newline. that's hard because we use strtok which removes newlines. on the second read we should either skip over the first partial line or better, defer parsing the last line of the first read until we have the complete line.*/
 	do {
 		/* skip over prefix (servername): */
 		if (line[0] == ':')
 			while (*line && *line++ != ' ');
 
-		/* look for command responses or error numerics, if any: */
+		/* look for command responses or error numerics, if required: */
 		switch (command) {
 		case PING: seen |= PING * (strncmp(line, "PONG ", 5)==0); break;
 		case JOIN: seen |= JOIN * (strncmp(line, "JOIN ", 5)==0);
@@ -132,7 +131,8 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 		           seen |= ERRS * (strncmp(line, "473 ",  4)==0);
 		           seen |= ERRS * (strncmp(line, "474 ",  4)==0);
 		           seen |= ERRS * (strncmp(line, "475 ",  4)==0);
-		           seen |= ERRS * (strncmp(line, "476 ",  4)==0); break;
+		           seen |= ERRS * (strncmp(line, "476 ",  4)==0);
+		           seen |= ERRS * (strncmp(line, "477 ",  4)==0); break;
 		case NICK: seen |= NICK * (strncmp(line, "001 ",  4)==0);
 		           seen |= ERRS * (strncmp(line, "432 ",  4)==0);
 		           seen |= ERRS * (strncmp(line, "433 ",  4)==0);
@@ -141,12 +141,18 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 		           seen |= ERRS * (strncmp(line, "902 ",  4)==0);
 		           seen |= ERRS * (strncmp(line, "904 ",  4)==0); break;
 		}
-		/* look for fatal error, if any */
+		/* look for common error numerics if any command was given */
+		if (command & (NICK|JOIN)) {
+		           seen |= ERRS * (strncmp(line, "400 ",  4)==0);
+		           seen |= ERRS * (strncmp(line, "421 ",  4)==0);
+		           seen |= ERRS * (strncmp(line, "465 ",  4)==0);
+		}
+		/* always look for a fatal error */
 		if (strncmp(line, "ERROR ", 6)==0) seen |= ERRS;
 
 		if (seen & ERRS) {
-			/* TODO: set &buf to line to preserve error across function call */
-			return seen;
+			fprintf(stderr, __FILE__ ":%d: %s\n", __LINE__, line);
+			exit(1);
 		}
 
 		/* reply to pings: */
@@ -155,7 +161,7 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 			WRITE(sock, line, strlen(line));
 			WRITE(sock, "\r\n", 2);
 		}
-	} while ((line = strtok_r(NULL, "\n", &saveptr)));
+	} while ((line = strtok_r(NULL, "\r\n", &saveptr)));
 
 	return seen;
 }
@@ -218,7 +224,7 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 			write(outfd, buf, n);
 			n = irc_answer(sock, buf, NICK);
 			if (n & NICK) break;
-			else if (n & ERRS) return -1; /* mostly for 433, 464 */
+			else if (n & ERRS) return -1;
 		}
 	}
 
@@ -234,7 +240,7 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 				write(outfd, buf, n);
 				n = irc_answer(sock, buf, JOIN);
 				if (n & JOIN) break;
-				else if (n & ERRS) return -1; /* mostly for 403, 471-475 */
+				else if (n & ERRS) return -1;
 			}
 		}
 	}
@@ -352,7 +358,7 @@ int main(int argc, char **argv) {
 	}
 
 	sock = irc_connect(host, port, tls, ca_file); sock.fd OR_DIE;
-	irc_setup(sock, 1, nick, pass, pass_type, chan) OR_DIE_irc;
+	irc_setup(sock, 1, nick, pass, pass_type, chan);
 	rv = irc_poll(sock, 0, 1);
 	irc_cleanup(sock);
 
