@@ -214,7 +214,7 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 	/* block until we get a RPL_WELCOME or an error: */
 	for (;;) {
 		if (poll(fds, 1, POLL_TIMEOUT)) {
-			n = READ(sock, buf, BUFSIZ);
+			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
 			write(outfd, buf, n);
 			n = irc_answer(sock, buf, NICK);
 			if (n & NICK) break;
@@ -230,7 +230,7 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 		/* todo: dedup this block with NICK/RPL_WELCOME */
 		for (;;) {
 			if (poll(fds, 1, POLL_TIMEOUT)) {
-				n = READ(sock, buf, BUFSIZ);
+				n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
 				write(outfd, buf, n);
 				n = irc_answer(sock, buf, JOIN);
 				if (n & JOIN) break;
@@ -258,7 +258,7 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 		/* XXX: long responses don't get fully processed until user input */
 		/* XXX: must handle TLS_WANT_POLLIN and TLS_WANT_POLLOUT for READ and WRITE! */
 		if (fds[IRC].revents & POLLIN) {
-			n = READ(sock, buf, BUFSIZ);
+			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
 			if (n == 0) return -1; /* server closed connection */
 			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
 			write(outfd, buf, n);
@@ -266,7 +266,7 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 			/* update last-msg-rcvd here */
 		}
 		if (fds[CLI].revents & POLLIN) {
-			n = read(infd, buf, BUFSIZ);
+			n = read(infd, buf, BUFSIZ); buf[n] = '\0';
 			if (n == 0) return 0; /* we closed connection */
 			n = WRITE(sock, buf, n);
 			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
