@@ -169,7 +169,6 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 int irc_base64(char *buf, int n) {
 	const char *b = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	int i, o, v, l = ((n+(3-n%3)%3)/3)*4;
-	if (l >= 400) return -1; /* lazy */
 	buf[n+1] = buf[n+2] = buf[l] = '\0';
 	for (i=(n+(3-n%3)%3)-3, o=l-4; i>=0 && o>=0; i-=3, o-=4) {
 		v = buf[i+0]<<16 | buf[i+1]<<8 | buf[i+2]<<0;
@@ -202,18 +201,17 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 	WRITE(sock, buf, n);
 
 	if (pass_type == SASL_PLAIN_PASSWD) {
-		int n2;
+		/* TODO: assert strlen(pass) < 300 or abort */
 		/* should wait for 'CAP <nick|*> ACK :<...>' */
 		WRITE(sock, "AUTHENTICATE PLAIN\r\n", 20);
 		/* server sends 'AUTHENTICATE +' */
 		/* split base64-output into 400 byte chunks; if last is exactly
 		   400 bytes, send empty msg ('+') afterwards */
-		n = snprintf(buf, BUFSIZ, "AUTHENTICATE ");
-		n2 = snprintf(buf+n, BUFSIZ-n, "%s%c%s%c%s", nick, 0, nick, 0, pass);
-		irc_base64(buf+n, n2) OR_DIE;
-		snprintf(buf+n+n2, BUFSIZ-n-n2, "\r\n");
-		WRITE(sock, buf, n+n2+2);
-		/* wait for response 900+903 (ok) or 904 (err) */
+		n = snprintf(buf, BUFSIZ, "AUTHENTICATE %s%c%s%c%s", nick, 0, nick, 0, pass);
+		n = irc_base64(buf+13, n-13)+13; /*13==strlen("AUTHENTICATE ")*/
+		n += snprintf(buf+n, BUFSIZ-n, "\r\n");
+		WRITE(sock, buf, n);
+		/* wait for response 900+903 (ok) or 902/904 (err) */
 		WRITE(sock, "CAP END\r\n", 9);
 	}
 
