@@ -1,6 +1,6 @@
-#define _POSIX_C_SOURCE 200809L /* getopt(>=2), dprintf(>=200809L), strtok_r(*), getaddrinfo(>=200112L) */
-#include <netdb.h>
+#define _POSIX_C_SOURCE 200112L /* getopt(>=2), strtok_r(*), getaddrinfo(>=200112L), clock_gettime(>=199309L) */
 #include <poll.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,13 +11,13 @@
 
 #include <tls.h>
 
-#define DEFAULT_PING 60000 /*ms*/
-#define DEFAULT_TIMEOUT 2000 /*ms*/
 #define DEFAULT_TLS NO_TLS
 #define DEFAULT_PORT_TCP "6667"
 #define DEFAULT_PORT_TLS "6697"
 
 #define POLL_TIMEOUT 100
+#define PING_INTERVAL 120000 /*ms*/
+#define PONG_TIMEOUT 2000 /*ms*/
 
 #define STR_(x) #x
 #define STR(x) STR_(x)
@@ -64,6 +64,7 @@ sock_t irc_connect(const char *host, const char *port, const int tls, const char
 		sock.fd = socket(r->ai_family, SOCK_STREAM, 0);
 		if (sock.fd < 0) continue; /* try next; todo: should check errno */
 
+		/* TODO: should set socket timeout here */
 		if (connect(sock.fd, r->ai_addr, r->ai_addrlen) == 0)
 			break; /* successfully connected */
 
@@ -121,7 +122,7 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 		if (line[0] == ':')
 			while (*line && *line++ != ' ');
 
-		/* look for command responses or error numerics, if required: */
+		/* look for command responses or relevant error numerics: */
 		switch (command) {
 		case PING: seen |= PING * (strncmp(line, "PONG ", 5)==0); break;
 		case JOIN: seen |= JOIN * (strncmp(line, "JOIN ", 5)==0);
@@ -246,9 +247,19 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 	return 0;
 }
 
+long irc_time() {
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t) OR_DIE;
+	return t.tv_sec*1000 + t.tv_nsec / 1000000; /* milliseconds */
+}
+
 int irc_poll(const sock_t sock, const int infd, const int outfd) {
 	int n;
 	char buf[BUFSIZ];
+
+	int want_pong = 0;
+	long recv_ts = irc_time();
+
 	enum { IRC, CLI };
 	struct pollfd fds[2];
 	fds[IRC].fd = sock.fd;
@@ -259,15 +270,17 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 	for (;;) {
 		poll(fds, 2, POLL_TIMEOUT) OR_DIE;
 
-		/* XXX: long responses don't get fully processed until user input */
-		/* XXX: must handle TLS_WANT_POLLIN and TLS_WANT_POLLOUT for READ and WRITE! */
+		/* XXX: should handle EINTR, EAGAIN    -> retry
+		        should handle EPIPE and others -> exit */
+		/* todo: could check for fds[IRC].revents & (POLLERR|POLLHUP): tcp FIN or RST received */
 		if (fds[IRC].revents & POLLIN) {
 			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
 			if (n == 0) return -1; /* server closed connection */
 			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
 			write(outfd, buf, n);
-			irc_answer(sock, buf, NO_CMD);
-			/* update last-msg-rcvd here */
+			if (irc_answer(sock, buf, want_pong?PING:NO_CMD) & PING)
+				want_pong = 0;
+			recv_ts = irc_time();
 		}
 		if (fds[CLI].revents & POLLIN) {
 			n = read(infd, buf, BUFSIZ); buf[n] = '\0';
@@ -279,14 +292,16 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 			n = WRITE(sock, buf, n);
 			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
 		}
-		/* TODO: if read/write on either irc or cli returns -1 and errno is EAGAIN or EINTR, retry. otherwise, return with error */
 
-		/* send ping here */
-		/*
-		dprintf(sockfd, "PING\r\n");
-		// poll-read
-		if (irc_answer(sockfd, buf, NICK) & NICK) break;
-		*/
+		if (want_pong && irc_time() - recv_ts > PING_INTERVAL + PONG_TIMEOUT) {
+			/* pong timeout reached, abort. */
+			fprintf(stderr, __FILE__ ":%d: %s\n", __LINE__, "PONG timeout");
+			return -1;
+		} else if (!want_pong && irc_time() - recv_ts > PING_INTERVAL) {
+			/* haven't rx'd anything in a while, sending ping. */
+			WRITE(sock, "PING :ircpipe\r\n", 15);
+			want_pong = 1;
+		}
 	}
 }
 
@@ -303,8 +318,6 @@ int main(int argc, char **argv) {
 	char *nick = NULL;
 	char *pass = NULL;
 	char *chan = NULL;
-	size_t ping_iv = DEFAULT_PING;  /* interval between outgoing pings */
-	size_t resp_to = DEFAULT_TIMEOUT; /* how long to wait for command response (connect, ping, auth, ...) */
 	int tls = DEFAULT_TLS;
 	char *ca_file = NULL;
 	int pass_type = NO_PASSWD;
