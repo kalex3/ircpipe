@@ -33,6 +33,14 @@ sets up an irc connection, and not much more.
     - relatively secure password handling!
 
 
+## vulnerabilities
+
+- we don't guard against escape sequences in responses. when used interactively,
+  a bad actor could send malicious sequences causing terminal corruption.
+  causing data leaks (by querying terminal information) is unlikely, as the
+  responses won't be proper irc PRIVMSGs.
+
+
 ## minor TODOs
 
 - check if port is valid
