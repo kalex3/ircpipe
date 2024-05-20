@@ -5,13 +5,11 @@ sets up an irc connection, and not much more.
 ## on connection
 
 - [x] connect
-- [ ] tls (optional cert validation)
+- [x] tls (optional cert validation)
 - [?] sasl plain (untested)
 - [x] set user and nick
-  - [ ] if in use, try alternate nick(s)
-  - [ ] if not specified, use random from pattern [a-z0-9]{8}
-- [ ] wait for motd/001-message
-- [ ] optionally, do an initial join?
+- [x] wait for motd/001-message
+- [x] optionally, do an initial join
 
 ## in the background
 
@@ -37,26 +35,12 @@ sets up an irc connection, and not much more.
 
 ## minor TODOs
 
-- make ping_iv and resp_to configurable
-- maybe allow HOST:PORT (nc doesn't)
 - check if port is valid
-- support ipv6
 - irc_poll: handle poll() EINTR (don't exit on nonfatal signal received)
-- handle user EOF
-- what to do when nick is taken
-  - use random nick
-  - use fallback nick (append '_')
-  - exit
 
 
 ## future todos:
 - flood protection!
-- allow specifying multiple channels to join on startup
-- allow specifying alternate nicks
-- failover hosts?
-- read once before sending NICK and USER
-  (verify this is actually a problem)
-- port gethostbyname to getaddrinfo
 
 
 ## dropped features (patches accepted)
@@ -78,7 +62,21 @@ sets up an irc connection, and not much more.
   - AUTHENTICATE
      ok: 900 903 <nick>
      err: 902 904 905 908 <nick>
+- maybe allow HOST:PORT (nc doesn't)
+  - maybe allow HOST +PORT and/or HOST:+PORT for tls
+  - maybe allow irc://HOST:PORT and ircs://HOST:PORT
+- what to do when nick is taken
+  - use random nick
+  - use fallback nick (append '_')
+  - allow specifying alternate nicks
+  - exit (this is what we do now on receiving the numeric error response)
 
+## discarded ideas
+all of these would require modifying the streaming data, which is more trouble
+than it's worth. these could be implemented as external filters, though.
+- -C flag to translate CRLF to LF (from server) and LF to CRLF (from stdin)
+- -A flag to strip ctrlchars (formatting, colors, etc) from stdout
+- enforce max line length (512 bytes, including CRLF) by splitting PRIVMSG
 
 ## for responses
 
@@ -96,55 +94,3 @@ commands we send that we need to wait for are:
  - PING
     ok: PONG :<whatever>
 
-{{{
-enum {
-	PONG    = 1<<0,
-	CAP_ACK = 1<<1,
-	CAP_NAK = 1<<2,
-	N001    = 1<<3,
-	N900    = 1<<4,
-	N903    = 1<<5,
-	N904    = 1<<6
-	/*...*/
-};
-enum { PING, CAP_REQ, 
-int irc_waitfor(const int sockfd, const unsigned int pattern) {
-	// block until one of the specified """patterns""" has been seen (or 2s timeout has been reached).
-	// we need to be able to handle:
-	// - ^PONG( :.+)?
-	//   we aren't really interested in the response really
-	// - ^(\d\d\d) 
-	//   for each command, we want to know which numeric of a limited set was returned
-	// - ^CAP \S* (ACK|NAK)
-	//   ack/nak is enough
-	// - maybe other ones in the future
-
-	unsigned int seen = 0;
-
-	while (timer < 2000ms) {
-		if (poll(fds, 1, 2000)) {
-			/* relay whatever we got */
-			n = read(sockfd, buf, BUFSIZ);
-			write(outfd, buf, n);
-
-			/* parse */
-			line = strtok_r(buf, "\n", &saveptr);
-			do {
-				/* skip over prefix (servername): */
-				if (line[0] == ':') while (*line++ != ' ');
-
-				/* match patterns: */
-				if (pattern & PONG) seen |= (strncmp(line, "PONG ", 5) == 0) & PONG;
-				if (pattern & (CAP_ACK|CAP_NAK) && (strncmp(line, "CAP ", 4) == 0)) {
-					seen |= (strstr(line, " ACK :") != NULL) & CAP_ACK;
-					seen |= (strstr(line, " NAK :") != NULL) & CAP_NAK;
-				}
-
-				/* reply to pings: todo */
-			} while (line = strtok_r(NULL, "\n", &saveptr));
-		}
-	}
-
-	return seen;
-}
-}}}
