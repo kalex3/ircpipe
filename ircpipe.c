@@ -316,7 +316,10 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 
 void irc_cleanup(const sock_t sock) {
 	WRITE(sock, "QUIT :ircpipe\r\n", 15);
-	if (sock.tls) tls_close(sock.tls);
+	if (sock.tls) {
+		tls_close(sock.tls);
+		tls_free(sock.tls);
+	}
 	shutdown(sock.fd, SHUT_RDWR);
 	close(sock.fd);
 }
