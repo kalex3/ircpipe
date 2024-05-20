@@ -165,9 +165,11 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 
 		/* reply to pings: */
 		if (strncmp(line, "PING ", 5) == 0) {
+			int n = strlen(line);
+			int crlf = line[n+1] == '\n'; /* strtok only removes first delimeter */
 			line[1] = 'O'; /* PING :foo -> PONG :foo */
-			WRITE(sock, line, strlen(line));
-			WRITE(sock, "\r\n", 2);
+			line[n] = crlf ? '\r' : '\n'; /* re-terminate after strtok */
+			WRITE(sock, line, n+crlf+1);
 		}
 	} while ((line = strtok_r(NULL, "\r\n", &saveptr)));
 
