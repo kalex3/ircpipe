@@ -1,7 +1,8 @@
-#define _POSIX_C_SOURCE 200112L /* getopt(>=2), strtok_r(*), getaddrinfo(>=200112L), clock_gettime(>=199309L) */
+#define _POSIX_C_SOURCE 200112L /* getopt(>=2), strtok_r(*), getaddrinfo(>=200112L), clock_gettime(>=199309L), sigaction(*) */
 #include <poll.h>
 #include <time.h>
 #include <stdio.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -312,6 +313,18 @@ void irc_cleanup(const sock_t sock) {
 	close(sock.fd);
 }
 
+sock_t sock;
+
+void irc_sighandler(int signum) {
+	switch (signum) {
+	case SIGHUP:
+	case SIGINT:
+	case SIGTERM:
+		irc_cleanup(sock);
+		exit(signum);
+	}
+}
+
 int main(int argc, char **argv) {
 	char *host = NULL;
 	char *port = NULL;
@@ -322,8 +335,8 @@ int main(int argc, char **argv) {
 	char *ca_file = NULL;
 	int pass_type = NO_PASSWD;
 
-	sock_t sock;
 	int rv;
+	struct sigaction act;
 
 	int opt; opterr = 0;
 
@@ -367,6 +380,12 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "must set IRC_PASSWD envvar to use -p/-P\n");
 		exit(1);
 	}
+
+	memset(&act, 0, sizeof act);
+	act.sa_handler = irc_sighandler;
+	sigaction(SIGHUP, &act, NULL);
+	sigaction(SIGINT, &act, NULL);
+	sigaction(SIGTERM, &act, NULL);
 
 	sock = irc_connect(host, port, tls, ca_file); sock.fd OR_DIE;
 	irc_setup(sock, 1, nick, pass, pass_type, chan);
