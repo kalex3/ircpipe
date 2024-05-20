@@ -159,7 +159,7 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 		if (strncmp(line, "ERROR ", 6)==0) seen |= ERRS;
 
 		if (seen & ERRS) {
-			fprintf(stderr, __FILE__ ":%d: %s\n", __LINE__, line);
+			fprintf(stderr, "IRC error: %s\n", line);
 			exit(1);
 		}
 
@@ -302,7 +302,7 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 
 		if (want_pong && irc_time() - recv_ts > PING_INTERVAL + PONG_TIMEOUT) {
 			/* pong timeout reached, abort. */
-			fprintf(stderr, __FILE__ ":%d: %s\n", __LINE__, "PONG timeout");
+			fprintf(stderr, "PONG timeout");
 			return -1;
 		} else if (!want_pong && irc_time() - recv_ts > PING_INTERVAL) {
 			/* haven't rx'd anything in a while, sending ping. */
