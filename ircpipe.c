@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -16,9 +17,9 @@
 #define DEFAULT_PORT_TCP "6667"
 #define DEFAULT_PORT_TLS "6697"
 
-#define POLL_TIMEOUT 100
+#define POLL_TIMEOUT     100 /*ms*/
 #define PING_INTERVAL 120000 /*ms*/
-#define PONG_TIMEOUT 2000 /*ms*/
+#define PONG_TIMEOUT    2000 /*ms*/
 
 #define STR_(x) #x
 #define STR(x) STR_(x)
@@ -58,14 +59,18 @@ void irc_help(const char *exe, const int code) {
 sock_t irc_connect(const char *host, const char *port, const int tls, const char *ca_file) {
 	sock_t sock;
 	struct addrinfo *results, *r;
+	struct timeval timeout;
 
 	int err = getaddrinfo(host, port, NULL, &results); OR_DIE_gai(err); /*unable to resolve*/
+
+	timeout.tv_sec = 10;
+	timeout.tv_usec = 0;
 
 	for (r = results; r != NULL; r = r->ai_next) {
 		sock.fd = socket(r->ai_family, SOCK_STREAM, 0);
 		if (sock.fd < 0) continue; /* try next; todo: should check errno */
 
-		/* TODO: should set socket timeout here */
+		setsockopt(sock.fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) OR_DIE;
 		if (connect(sock.fd, r->ai_addr, r->ai_addrlen) == 0)
 			break; /* successfully connected */
 
@@ -124,6 +129,7 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 			while (*line && *line++ != ' ');
 
 		/* look for command responses or relevant error numerics: */
+		/* TODO: our current handling of only a specific set of error numerics makes us vulnerable to hangs, when an unexpected code was received. we should really respect a response timeout here (during setup this must be quite large, because of ident and port scanning!) */
 		switch (command) {
 		case PING: seen |= PING * (strncmp(line, "PONG ", 5)==0); break;
 		case JOIN: seen |= JOIN * (strncmp(line, "JOIN ", 5)==0);
