@@ -95,7 +95,6 @@ sock_t irc_connect(const char *host, const char *port, const int tls, const char
 			tls_config_set_dheparams(cfg, "auto") OR_DIE_tls(ctx);
 			if (ca_file) tls_config_set_ca_file(cfg, ca_file) OR_DIE_tls(ctx);
 			/* todo: if ca_file ends in /, call tls_config_set_ca_path() instead */
-			/* todo: otherwise, set to tls_default_ca_cert_file() iff libtls (not libretls) */
 
 			tls_configure(ctx, cfg) OR_DIE_tls(ctx);
 			tls_config_free(cfg);
@@ -226,12 +225,10 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 	WRITE(sock, buf, n);
 
 	if (pass_type == SASL_PLAIN_PASSWD) {
-		/* TODO: assert strlen(pass) < 300 or abort */
+		/* note: should assert strlen(pass) < 300 for spec compliance */
 		/* should wait for 'CAP <nick|*> ACK :<...>' */
 		WRITE(sock, "AUTHENTICATE PLAIN\r\n", 20);
 		/* server sends 'AUTHENTICATE +' */
-		/* split base64-output into 400 byte chunks; if last is exactly
-		   400 bytes, send empty msg ('+') afterwards */
 		n = snprintf(buf, BUFSIZ, "AUTHENTICATE %s%c%s%c%s", nick, 0, nick, 0, pass);
 		n = irc_base64(buf+13, n-13)+13; /*13==strlen("AUTHENTICATE ")*/
 		n += snprintf(buf+n, BUFSIZ-n, "\r\n");
@@ -279,9 +276,7 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 	for (;;) {
 		poll(fds, 2, POLL_TIMEOUT) OR_DIE;
 
-		/* XXX: should handle EINTR, EAGAIN    -> retry
-		        should handle EPIPE and others -> exit */
-		/* todo: could check for fds[IRC].revents & (POLLERR|POLLHUP): tcp FIN or RST received (should already be covered by n==0) */
+		/* todo: should retry on EINTR, EAGAIN */
 		if (fds[IRC].revents & POLLIN) {
 			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
 			if (n == 0) return -1; /* server closed connection */
