@@ -68,7 +68,7 @@ sock_t irc_connect(const char *host, const char *port, const int tls, const char
 
 	for (r = results; r != NULL; r = r->ai_next) {
 		sock.fd = socket(r->ai_family, SOCK_STREAM, 0);
-		if (sock.fd < 0) continue; /* try next; todo: should check errno */
+		if (sock.fd < 0) continue;
 
 		setsockopt(sock.fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) OR_DIE;
 		if (connect(sock.fd, r->ai_addr, r->ai_addrlen) == 0)
@@ -304,7 +304,7 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 
 		if (want_pong && irc_time() - recv_ts > PING_INTERVAL + PONG_TIMEOUT) {
 			/* pong timeout reached, abort. */
-			fprintf(stderr, "PONG timeout");
+			fprintf(stderr, "PONG timeout\n");
 			return -1;
 		} else if (!want_pong && irc_time() - recv_ts > PING_INTERVAL) {
 			/* haven't rx'd anything in a while, sending ping. */
