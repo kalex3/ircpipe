@@ -229,6 +229,7 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 	for (;;) {
 		if (poll(fds, 1, POLL_TIMEOUT)) {
 			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
+			if (n == 0) return -1; /* server closed connection */
 			write(outfd, buf, n);
 			n = irc_answer(sock, buf, NICK);
 			if (n & NICK) break;
@@ -245,6 +246,7 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 		for (;;) {
 			if (poll(fds, 1, POLL_TIMEOUT)) {
 				n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
+				if (n == 0) return -1; /* server closed connection */
 				write(outfd, buf, n);
 				n = irc_answer(sock, buf, JOIN);
 				if (n & JOIN) break;
@@ -281,7 +283,7 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 
 		/* XXX: should handle EINTR, EAGAIN    -> retry
 		        should handle EPIPE and others -> exit */
-		/* todo: could check for fds[IRC].revents & (POLLERR|POLLHUP): tcp FIN or RST received */
+		/* todo: could check for fds[IRC].revents & (POLLERR|POLLHUP): tcp FIN or RST received (should already be covered by n==0) */
 		if (fds[IRC].revents & POLLIN) {
 			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
 			if (n == 0) return -1; /* server closed connection */
