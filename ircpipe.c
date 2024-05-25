@@ -190,12 +190,27 @@ int irc_base64(char *buf, int n) {
 	return l;
 }
 
-int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *pass, int pass_type, const char *chan) {
-	char buf[BUFSIZ];
+int irc_wait(const sock_t sock, const int outfd, int cmd, char* buf) {
 	int n;
 	struct pollfd fds[1];
 	fds[0].fd = sock.fd;
 	fds[0].events = POLLIN;
+
+	for (;;) { /* note: reusing callee's buf */
+		if (poll(fds, 1, POLL_TIMEOUT)) {
+			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
+			if (n == 0) return -1; /* server closed connection */
+			write(outfd, buf, n);
+			n = irc_answer(sock, buf, cmd);
+			if (n & cmd) return 0;
+			else if (n & ERRS) return -1;
+		}
+	}
+}
+
+int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *pass, int pass_type, const char *chan) {
+	char buf[BUFSIZ];
+	int n;
 
 	if (pass_type == SASL_PLAIN_PASSWD) {
 		n = snprintf(buf, BUFSIZ, "CAP REQ :sasl\r\n");
@@ -226,33 +241,16 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 	}
 
 	/* block until we get a RPL_WELCOME or an error: */
-	for (;;) {
-		if (poll(fds, 1, POLL_TIMEOUT)) {
-			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
-			if (n == 0) return -1; /* server closed connection */
-			write(outfd, buf, n);
-			n = irc_answer(sock, buf, NICK);
-			if (n & NICK) break;
-			else if (n & ERRS) return -1;
-		}
-	}
+	n = irc_wait(sock, outfd, NICK, buf);
+	if (n < 0) return n;
 
 	if (chan) {
 		n = snprintf(buf, BUFSIZ, "JOIN %s\r\n", chan);
 		WRITE(sock, buf, n);
 
 		/* block until we get a JOIN response or an error: */
-		/* todo: dedup this block with NICK/RPL_WELCOME */
-		for (;;) {
-			if (poll(fds, 1, POLL_TIMEOUT)) {
-				n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
-				if (n == 0) return -1; /* server closed connection */
-				write(outfd, buf, n);
-				n = irc_answer(sock, buf, JOIN);
-				if (n & JOIN) break;
-				else if (n & ERRS) return -1;
-			}
-		}
+		n = irc_wait(sock, outfd, JOIN, buf);
+		if (n < 0) return n;
 	}
 
 	return 0;
