@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import sys
+import re, sys
 
 def parse(line): #-> [nick, user, host], command, arguments
     prefix, params  = b"", []
@@ -58,9 +58,9 @@ for line in sys.stdin.buffer:
             msg_end +=1
 
         hi_start, hi_end = msg_start, msg_start
-        if myself and myself in msg: # highlight own nick
-            hi_start = msg.index(myself) + msg_start
-            hi_end = len(myself) + hi_start
+        if m := re.search(rb"\b%s\b" % re.escape(myself), msg):
+            hi_start = msg_start + m.start(0)
+            hi_end = msg_start + m.end(0)
 
         say(
             DIM,   line[:nick_start],
