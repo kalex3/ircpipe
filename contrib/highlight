@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-
 import re, sys
 
 def parse(line): #-> [nick, user, host], command, arguments
@@ -18,9 +17,7 @@ def parse(line): #-> [nick, user, host], command, arguments
     # handle final parameter:
     params += [line.removeprefix(b":")]
 
-    if params:
-        # note: command may also be a numeric reply
-        command, *arguments = params
+    command, *arguments = params # note: command may also be a numeric reply
 
     if b"!" in prefix and b"@" in prefix:
         nick, rest = prefix.removeprefix(b":").split(b"!", 1)
