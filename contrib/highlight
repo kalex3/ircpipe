@@ -1,0 +1,106 @@
+#!/usr/bin/python3
+
+import sys
+
+def parse(line): #-> [nick, user, host], command, arguments
+    prefix, params  = b"", []
+    command, arguments = None, []
+    nick, user, host = None, None, None
+
+    line = line.rstrip(b"\r\n")
+    # handle prefix:
+    if line.startswith(b":"):
+        prefix, line = line.split(b" ", 1)
+    # handle command and arguments:
+    while b" " in line and not line.startswith(b":"):
+        word, line = line.split(b" ", 1)
+        params += [word]
+    # handle final parameter:
+    params += [line.removeprefix(b":")]
+
+    if params:
+        # note: command may also be a numeric reply
+        command, *arguments = params
+
+    if b"!" in prefix and b"@" in prefix:
+        nick, rest = prefix.removeprefix(b":").split(b"!", 1)
+        user, host = rest.split(b"@", 1)
+    elif prefix: # server
+        host = prefix.removeprefix(b":")
+
+    return [nick, user, host], command, arguments
+
+DIM = b"\033[0;2m"
+BOLD = b"\033[0;1m"
+RESET = b"\033[0m"
+REV = b"\033[0;7m"
+
+def say(*args):
+    sys.stdout.buffer.write(b"".join(args)+b"\n")
+    sys.stdout.buffer.flush()
+
+def findall(needle, haystack):
+    if not needle: return []
+    spans, offset, length = [], 0, len(needle)
+    nickchars = (
+        br"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        br"abcdefghijklmnopqrstuvwxyz"
+        br"0123456789-[\]^_`{|}")
+
+    while offset < len(haystack):
+        try:
+            offset = haystack.index(needle, offset)
+            # check for a word boundary before and after nick:
+            if (offset==0 or haystack[offset-1] not in nickchars) \
+            and (offset+length==len(haystack) or haystack[offset+length] not in nickchars):
+                spans += [(offset, length)]
+            offset += length
+        except ValueError as e:
+            break # no more matches
+    return spans
+
+myself = None
+for line in sys.stdin.buffer:
+    [nick, user, host], command, arguments = parse(line)
+
+    if command in (b"PRIVMSG", b"NOTICE") and len(arguments) == 2 and nick:
+        chan, msg = arguments
+        nick_start = len(b":")
+        nick_end = nick_start+len(nick)
+        cmd_start = nick_end+len(b"!")+len(user)+len(b"@")+len(host)+len(b" ")
+        cmd_end = cmd_start+len(command)
+        chan_start = cmd_end+len(b" ")
+        chan_end = chan_start+len(chan)
+        msg_start = chan_end+len(b" ")
+        msg_end = msg_start+len(msg)
+        if line[msg_start] == ord(':'):
+            msg_start +=1
+            msg_end +=1
+
+        hi_msg = line[msg_start:msg_end]
+        for s,l in reversed(findall(myself, hi_msg)):
+            hi_msg = hi_msg[:s] + REV + hi_msg[s:s+l] + RESET + hi_msg[s+l:]
+
+        # maybe todo:
+        # - support mIRC highlighting (colors, bold, etc)
+        #   https://modern.ircdocs.horse/formatting.html
+        #   including \x01ACTION privmsg prefix
+        # - highlight own nick and/or user-def'd strings
+
+        say(
+            DIM,   line[:nick_start],
+            BOLD,  line[nick_start:nick_end],
+            DIM,   line[nick_end:chan_start],
+            BOLD,  line[chan_start:chan_end],
+            DIM,   line[chan_end:msg_start],
+            RESET, hi_msg,
+            REV,   line[msg_end:].rstrip(b"\r\n"),
+        RESET)
+    elif command in (b"PING", b"PONG"):
+        pass # hide (could also do "JOIN", "QUIT", motd, names, ...)
+    else:
+        if command == b"001" and arguments:
+            myself = arguments[0] # store own username for later highlighting it
+        say(
+            DIM,   line.rstrip(b"\r\n"),
+        RESET)
