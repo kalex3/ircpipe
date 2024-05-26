@@ -41,20 +41,10 @@ sets up an irc connection, and not much more.
   responses won't be proper irc PRIVMSGs.
 
 
-## minor TODOs
-
-- check if port is valid
-- irc_poll: handle poll() EINTR (don't exit on nonfatal signal received)
-
-
-## future todos:
-- flood protection!
-
-
 ## dropped features (patches accepted)
 - nickserv: freenode and hackint support sasl, efenet neither. rest don't care.
 - sasl cert: don't care for it
-- optionally use socket instead of stdin/stdout?
+- optionally use unix domain socket instead of stdin/stdout? (-U?)
 - checking responses to NICK, JOIN, CAP-REQ, AUTHENTICATE
   for now, we're just assuming everything went ok.
   - NICK/USER
@@ -80,11 +70,15 @@ sets up an irc connection, and not much more.
   - exit (this is what we do now on receiving the numeric error response)
 
 ## discarded ideas
+- flood protection!
+  sending more than roughly 4 privmsgs to the same channel in rapid succession
+  can trigger anti-spam measures. an input filter could easily delay bursts.
 all of these would require modifying the streaming data, which is more trouble
 than it's worth. these could be implemented as external filters, though.
 - -C flag to translate CRLF to LF (from server) and LF to CRLF (from stdin)
 - -A flag to strip ctrlchars (formatting, colors, etc) from stdout
 - enforce max line length (512 bytes, including CRLF) by splitting PRIVMSG
+- output filter to highlight PRIVMSGs (nick, channel, message)
 
 ## for responses
 
