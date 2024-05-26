@@ -237,20 +237,17 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 		WRITE(sock, "CAP END\r\n", 9);
 	}
 
-	/* block until we get a RPL_WELCOME or an error: */
-	n = irc_wait(sock, outfd, NICK, buf);
-	if (n < 0) return n;
-
 	if (chan) {
 		n = snprintf(buf, BUFSIZ, "JOIN %s\r\n", chan);
 		WRITE(sock, buf, n);
-
 		/* block until we get a JOIN response or an error: */
 		n = irc_wait(sock, outfd, JOIN, buf);
-		if (n < 0) return n;
+	} else {
+		/* block until we get a RPL_WELCOME or an error: */
+		n = irc_wait(sock, outfd, NICK, buf);
 	}
 
-	return 0;
+	return n;
 }
 
 long irc_time() {
