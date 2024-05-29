@@ -36,8 +36,15 @@ def say(*args):
     sys.stdout.buffer.write(b"".join(args)+b"\n")
     sys.stdout.buffer.flush()
 
+def sanitize(s):
+    # removes control characters so malicious actors can't mess up our terminal
+    # with escape sequences. this also removes formatting codes.
+    return re.sub(rb"[\001-\011\013\014\016-\037\177\x80-\x9F]", b"", s)
+
 myself = None
 for line in sys.stdin.buffer:
+    line = sanitize(line)
+
     [nick, user, host], command, arguments = parse(line)
 
     if command in (b"PRIVMSG", b"NOTICE") and len(arguments) == 2 and nick:
