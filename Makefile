@@ -1,6 +1,3 @@
-CFLAGS=-Wall -Wpedantic -std=c89 -g -ltls
-ircpipe: ircpipe.c
-
-.PHONY: test
-test: ircpipe
-	./ircpipe -n asdfsdw -j '#vxmvcxcwe' irc.efnet.org
+CFLAGS ?= -std=c89 -Wall -Wextra -Wpedantic -g
+LDFLAGS = -ltls
+all: ircpipe
