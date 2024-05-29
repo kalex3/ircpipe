@@ -121,3 +121,9 @@ are installed, then simply run `make`. Sensible `CFLAGS` are provided by
 default, unless given from either the environment or as an argument to make(1).
 The resulting executable, `ircpipe`, can then simply be copied to `$PATH` e.g.
 with install(1).
+
+
+## Licensing
+
+This software is made available at https://git.gir.st/ircpipe.git under the
+terms of the GNU General Public License Version 3.

@@ -1,3 +1,4 @@
+/* Copyright 2024 Tobias Girstmair <https://gir.st/>, GPLv3 licensed. */
 #define _POSIX_C_SOURCE 200112L /* getopt(>=2), strtok_r(*), getaddrinfo(>=200112L), clock_gettime(>=199309L), sigaction(*) */
 #include <poll.h>
 #include <time.h>
