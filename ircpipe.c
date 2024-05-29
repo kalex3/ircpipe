@@ -13,6 +13,9 @@
 
 #include <tls.h>
 
+#define PROGNAME "ircpipe"
+#define VERSION "0.1"
+
 #define DEFAULT_TLS NO_TLS
 #define DEFAULT_PORT_TCP "6667"
 #define DEFAULT_PORT_TLS "6697"
@@ -353,7 +356,7 @@ int main(int argc, char **argv) {
 	pass = getenv("IRC_PASSWD");
 	ca_file = getenv("IRC_CAFILE");
 
-	while ((opt = getopt(argc, argv, "n:j:pPsSkh")) != -1) {
+	while ((opt = getopt(argc, argv, "n:j:pPsSkhV")) != -1) {
 		switch (opt) {
 		case 'n': nick = optarg; break;
 		case 'p': pass_type = SERVER_PASSWD; break;
@@ -362,6 +365,7 @@ int main(int argc, char **argv) {
 		case 'S': tls = NO_TLS; break;
 		case 'k': tls = INSECURE_TLS; break;
 		case 'j': chan = optarg; break;
+		case 'V': printf(PROGNAME " " VERSION "\n"); return 0;
 		default: irc_help(argv[0], opt != 'h');
 		}
 	}
