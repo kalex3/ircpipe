@@ -23,7 +23,8 @@
 #define POLL_TIMEOUT     100 /*ms*/
 #define PING_INTERVAL 120000 /*ms*/
 #define PONG_TIMEOUT    2000 /*ms*/
-#define SETUP_TIMEOUT  15000 /*ms*/
+#define SETUP_TIMEOUT  30000 /*ms*/
+#define SOCKET_TIMEOUT  5000 /*ms*/
 
 #define STR_(x) #x
 #define STR(x) STR_(x)
@@ -67,8 +68,8 @@ sock_t irc_connect(const char *host, const char *port, const int tls, const char
 
 	int err = getaddrinfo(host, port, NULL, &results); OR_DIE_gai(err); /*unable to resolve*/
 
-	timeout.tv_sec = 10;
-	timeout.tv_usec = 0;
+	timeout.tv_sec = SOCKET_TIMEOUT / 1000;
+	timeout.tv_usec = (SOCKET_TIMEOUT % 1000) * 1000000;
 
 	for (r = results; r != NULL; r = r->ai_next) {
 		sock.fd = socket(r->ai_family, SOCK_STREAM, 0);
