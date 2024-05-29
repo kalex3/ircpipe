@@ -20,6 +20,7 @@
 #define POLL_TIMEOUT     100 /*ms*/
 #define PING_INTERVAL 120000 /*ms*/
 #define PONG_TIMEOUT    2000 /*ms*/
+#define SETUP_TIMEOUT  15000 /*ms*/
 
 #define STR_(x) #x
 #define STR(x) STR_(x)
@@ -128,7 +129,6 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 			while (*line && *line++ != ' ');
 
 		/* look for command responses or relevant error numerics: */
-		/* TODO: our current handling of only a specific set of error numerics makes us vulnerable to hangs, when an unexpected code was received. we should really respect a response timeout here (during setup this must be quite large, because of ident and port scanning!) */
 		switch (command) {
 		case PING: seen |= PING * (strncmp(line, "PONG ", 5)==0); break;
 		case JOIN: seen |= JOIN * (strncmp(line, "JOIN ", 5)==0);
@@ -189,8 +189,15 @@ int irc_base64(char *buf, int n) {
 	return l;
 }
 
+long irc_time(void) {
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t) OR_DIE;
+	return t.tv_sec*1000 + t.tv_nsec / 1000000; /* milliseconds */
+}
+
 int irc_wait(const sock_t sock, const int outfd, int cmd, char* buf) {
 	int n;
+	long start = irc_time();
 	struct pollfd fds[1];
 	fds[0].fd = sock.fd;
 	fds[0].events = POLLIN;
@@ -202,7 +209,10 @@ int irc_wait(const sock_t sock, const int outfd, int cmd, char* buf) {
 			write(outfd, buf, n);
 			n = irc_answer(sock, buf, cmd);
 			if (n & cmd) return 0;
-			else if (n & ERRS) return -1;
+			if (irc_time() - start > SETUP_TIMEOUT) {
+				fprintf(stderr, "IRC setup timeout\n");
+				exit(1);
+			}
 		}
 	}
 }
@@ -251,12 +261,6 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 	}
 
 	return 0;
-}
-
-long irc_time() {
-	struct timespec t;
-	clock_gettime(CLOCK_MONOTONIC, &t) OR_DIE;
-	return t.tv_sec*1000 + t.tv_nsec / 1000000; /* milliseconds */
 }
 
 int irc_poll(const sock_t sock, const int infd, const int outfd) {
