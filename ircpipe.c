@@ -11,7 +11,9 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
+#ifndef DISABLELIBTLS
 #include <tls.h>
+#endif
 
 #define DEFAULT_TLS NO_TLS
 #define DEFAULT_PORT_TCP "6667"
@@ -42,13 +44,20 @@ enum tls_use_e {
 
 typedef struct {
 	int fd; /* always contains the underlying file descriptor */
+#ifndef DISABLELIBTLS
 	struct tls *tls; /* tls context, or NULL with plain socket */
+#endif
 } sock_t;
+#ifndef DISABLELIBTLS
 #define _IMPLFN(fn, sock, buf, sz) (    \
 	sock.tls                        \
 	? tls_ ## fn(sock.tls, buf, sz) \
 	: fn(sock.fd, buf, sz)          \
 )
+#else
+#define _IMPLFN(fn, sock, buf, sz)      \
+	fn(sock.fd, buf, sz)
+#endif
 #define READ(sock, buf, sz) _IMPLFN(read, sock, buf, sz)
 #define WRITE(sock, buf, sz) _IMPLFN(write, sock, buf, sz)
 
@@ -83,6 +92,7 @@ sock_t irc_connect(const char *host, const char *port, const int tls, const char
 		sock.fd = -1;
 	} else {
 		/* connection established. */
+#ifndef DISABLELIBTLS
 		if (tls != NO_TLS) {
 			struct tls *ctx = tls_client();
 			struct tls_config *cfg = tls_config_new();
@@ -104,6 +114,7 @@ sock_t irc_connect(const char *host, const char *port, const int tls, const char
 
 			sock.tls = ctx;
 		} else sock.tls = NULL;
+#endif
 		/* connect timeout here */
 	}
 
@@ -284,7 +295,9 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 		if (fds[IRC].revents & POLLIN) {
 			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
 			if (n == 0) return -1; /* server closed connection */
+#ifndef DISABLELIBTLS
 			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
+#endif
 			write(outfd, buf, n);
 			if (irc_answer(sock, buf, want_pong?PING:NO_CMD) & PING)
 				want_pong = 0;
@@ -294,11 +307,15 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 			n = read(infd, buf, BUFSIZ); buf[n] = '\0';
 			if (n == 0) return 0; /* we closed connection */
 			n = WRITE(sock, buf, n);
+#ifndef DISABLELIBTLS
 			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
+#endif
 		}
 		if (fds[IRC].revents & POLLOUT) { /* needed for TLS only */
 			n = WRITE(sock, buf, n);
+#ifndef DISABLELIBTLS
 			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
+#endif
 		}
 
 		if (want_pong && irc_time() - recv_ts > PING_INTERVAL + PONG_TIMEOUT) {
@@ -315,10 +332,12 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 
 void irc_cleanup(const sock_t sock) {
 	WRITE(sock, "QUIT :ircpipe\r\n", 15);
+#ifndef DISABLELIBTLS
 	if (sock.tls) {
 		tls_close(sock.tls);
 		tls_free(sock.tls);
 	}
+#endif
 	shutdown(sock.fd, SHUT_RDWR);
 	close(sock.fd);
 }
@@ -358,9 +377,11 @@ int main(int argc, char **argv) {
 		case 'n': nick = optarg; break;
 		case 'p': pass_type = SERVER_PASSWD; break;
 		case 'P': pass_type = SASL_PLAIN_PASSWD; break;
-		case 's': tls = USE_TLS; break;
 		case 'S': tls = NO_TLS; break;
+#ifndef DISABLELIBTLS
+		case 's': tls = USE_TLS; break;
 		case 'k': tls = INSECURE_TLS; break;
+#endif
 		case 'j': chan = optarg; break;
 		default: irc_help(argv[0], opt != 'h');
 		}
