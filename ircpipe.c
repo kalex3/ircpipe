@@ -392,6 +392,11 @@ int main(int argc, char **argv) {
 		irc_help(argv[0], 1);
 	}
 
+	if (!nick || !*nick) {
+		fprintf(stderr, "must provide a nick with -n\n");
+		exit(1);
+	}
+
 	if (pass_type != NO_PASSWD && pass == NULL) {
 		fprintf(stderr, "must set IRC_PASSWD envvar to use -p/-P\n");
 		exit(1);
