@@ -39,7 +39,7 @@ def say(*args):
 def sanitize(s):
     # removes control characters so malicious actors can't mess up our terminal
     # with escape sequences. this also removes formatting codes.
-    return re.sub(rb"[\001-\011\013\014\016-\037\177\x80-\x9F]", b"", s)
+    return re.sub(rb"[\001-\011\013\014\016-\037\177]", b"", s)
 
 myself = None
 for line in sys.stdin.buffer:
