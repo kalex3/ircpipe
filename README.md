@@ -67,10 +67,14 @@ Connect to an IRC bouncer and highlight incoming messages. Timestamps are
 provided by `ts`, part of the moreutils suite. This is a surprisingly usable
 interactive IRC client. Posting to a channel (or messaging a user) is possible
 by sending the raw command, e.g. `privmsg #myChan :hello, world!` (most ircd
-implementations are matching commands case-insensitively).
+implementations are matching commands case-insensitively). For better input
+handling, wrapping the whole pipeline with `rlwrap sh -c '...'` prevents
+incoming messages from mangling half-typed commands.
 
 ```
 IRC_PASSWD=myNick/myNet:myPass ircpipe -n myNick -p -s bouncer.example.org | ./contrib/highlight | ts
+# or:
+IRC_PASSWD=myNick/myNet:myPass rlwrap sh -c 'ircpipe -n myNick -p -s bouncer.example.org | ./contrib/highlight | ts'
 ```
 
 Forward some error logs to a special IRC channel. This is the original use case
