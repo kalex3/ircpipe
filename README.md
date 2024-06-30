@@ -94,6 +94,12 @@ exploits how the server interprets JOIN messages with multiple channels.
 ircpipe -n myNick -j '#myChan1,#myChan2' -s irc.example.com >> /var/log/irc
 ```
 
+Sometimes, communicating using stdin and stdout might not be ideal. socat(1) can
+be used to connect ircpipe to a UNIX domain (or any other kind of) socket.
+
+```
+socat EXEC:'ircpipe -s -n myNick irc.example.com' UNIX-LISTEN:/tmp/ircpipe
+```
 
 ## Caveats
 
