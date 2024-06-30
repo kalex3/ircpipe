@@ -368,6 +368,7 @@ int main(int argc, char **argv) {
 		case 'k': tls = INSECURE_TLS; break;
 		case 'j': chan = optarg; break;
 		case 'V': printf(PROGNAME " " VERSION "\n"); return 0;
+		case '?': printf("unrecognized argument -%c\n", optopt); /* fallthrough */
 		default: irc_help(argv[0], opt != 'h');
 		}
 	}
