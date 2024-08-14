@@ -26,7 +26,7 @@ sends out and responds to pings to avoid the connection from timing out. During
 setup, received IRC messages are partially parsed and checked for common error
 numerics to check for failures. Until this point, data on stdin is not read and
 kept buffered by the operating system to avoid sending commands before the
-connectino is ready. Afterwards, ircpipe only listens to pings (to which it
+connection is ready. Afterwards, ircpipe only listens to pings (to which it
 automatically responds) and fatal `ERROR` messages (on which ircpipe exits).
 When exiting due to an IRC protocol level error, ircpipe prints the full line of
 the responsible response to stderr and exits with code 1.
