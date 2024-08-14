@@ -57,9 +57,8 @@ typedef struct {
 #define READ(sock, buf, sz) _IMPLFN(read, sock, buf, sz)
 #define WRITE(sock, buf, sz) _IMPLFN(write, sock, buf, sz)
 
-void irc_help(const char *exe, const int code) {
+void irc_help(const char *exe) {
 	fprintf(stderr, "Usage: %s [-pP] [-sSk] [-n NICK] [-j CHAN] HOST [PORT]\n", exe);
-	exit(code);
 }
 
 sock_t irc_connect(const char *host, const char *port, const int tls, const char *ca_file) {
@@ -368,8 +367,10 @@ int main(int argc, char **argv) {
 		case 'k': tls = INSECURE_TLS; break;
 		case 'j': chan = optarg; break;
 		case 'V': printf(PROGNAME " " VERSION "\n"); return 0;
-		case '?': printf("unrecognized argument -%c\n", optopt); /* fallthrough */
-		default: irc_help(argv[0], opt != 'h');
+		case 'h': irc_help(argv[0]); return 0;
+		default:
+			printf("unrecognized argument -%c\n", optopt);
+			return 1;
 		}
 	}
 
@@ -378,7 +379,7 @@ int main(int argc, char **argv) {
 	} else {
 		/* too few positional arguments */
 		fprintf(stderr, "missing HOST\n");
-		irc_help(argv[0], 1);
+		return 1;
 	}
 	if (optind < argc) {
 		port = argv[optind++];
@@ -390,17 +391,17 @@ int main(int argc, char **argv) {
 	if (optind < argc) {
 		/* too many positional arguments */
 		fprintf(stderr, "too many args\n");
-		irc_help(argv[0], 1);
+		return 1;
 	}
 
 	if (!nick || !*nick) {
 		fprintf(stderr, "must provide a nick with -n\n");
-		exit(1);
+		return 1;
 	}
 
 	if (pass_type != NO_PASSWD && pass == NULL) {
 		fprintf(stderr, "must set IRC_PASSWD envvar to use -p/-P\n");
-		exit(1);
+		return 1;
 	}
 
 	memset(&act, 0, sizeof act);
