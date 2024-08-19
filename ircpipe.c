@@ -210,6 +210,7 @@ int irc_wait(const sock_t sock, const int outfd, int cmd, char* buf) {
 		if (poll(fds, 1, POLL_TIMEOUT)) {
 			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
 			if (n == 0) return -1; /* server closed connection */
+			if (n == TLS_WANT_POLLIN) continue;
 			write(outfd, buf, n);
 			n = irc_answer(sock, buf, cmd);
 			if (n & cmd) return 0;
