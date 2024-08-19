@@ -57,6 +57,15 @@ typedef struct {
 #define READ(sock, buf, sz) _IMPLFN(read, sock, buf, sz)
 #define WRITE(sock, buf, sz) _IMPLFN(write, sock, buf, sz)
 
+typedef struct {
+	size_t off; /* offset, at which read(2) should start writing bytes */
+	size_t nextoff; /* length of the final partial/unterminated line */
+	char *nextbuf; /* start of the unterminated partial line */
+	char buf[BUFSIZ];
+} buf_t;
+#define BUF(b) (b->buf + b->off)
+#define SIZ(b) (BUFSIZ - b->off)
+
 void irc_help(const char *exe) {
 	fprintf(stderr, "Usage: %s [-pP] [-sSk] [-n NICK] [-j CHAN] HOST [PORT]\n", exe);
 }
@@ -126,7 +135,6 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 	unsigned int seen = 0;
 	char *saveptr;
 	char *line = strtok_r(buf, "\r\n", &saveptr);
-	/*TODO: it often happens that we take multiple calls to read() all the available lines (e.g. large motd, NAMES message). when this happens, one call to read() will return an incomplete line, and the next will start in the middle of a line. this can't be parsed properly! we need to check if the last line ends with a newline. that's hard because we use strtok which removes newlines. on the second read we should either skip over the first partial line or better, defer parsing the last line of the first read until we have the complete line.*/
 	do {
 		/* skip over prefix (servername): */
 		if (line[0] == ':')
@@ -170,6 +178,7 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 		if (strncmp(line, "PING ", 5) == 0) {
 			int n = strlen(line);
 			int crlf = line[n+1] == '\n'; /* strtok only removes first delimeter */
+			/*^XXX: this causes 1byte out-of-bounds read if buffer was completely full. however, we only expect pings in a buffer of their own (after a period of radio silence), so in practise this won't matter */
 			line[1] = 'O'; /* PING :foo -> PONG :foo */
 			line[n] = crlf ? '\r' : '\n'; /* re-terminate after strtok */
 			WRITE(sock, line, n+crlf+1);
@@ -199,20 +208,48 @@ long irc_time(void) {
 	return t.tv_sec*1000 + t.tv_nsec / 1000000; /* milliseconds */
 }
 
-int irc_wait(const sock_t sock, const int outfd, int cmd, char* buf) {
+void *irc_memrchr(const void *s, int c, size_t n) {
+	while (n--)
+		if (((unsigned char *)s)[n] == (unsigned char)c)
+			return (void *)(((unsigned char *)s)+n);
+	return NULL;
+}
+
+void irc_terminate_buffer(buf_t *b, int n) {
+	char *eol = irc_memrchr(BUF(b), '\n', n);
+	if (eol == NULL) {
+		fprintf(stderr, PROGNAME": line length exceeds %d bytes, aborting.", BUFSIZ);
+		exit(-1); /* todo: return code? */
+	}
+	b->nextbuf = eol + 1; /* next buffer starts *after* newline */
+	b->nextoff = (BUF(b) + n - 1) - eol; /* points to beginning of final unterminated line */
+	if (eol > b->buf && eol[-1] == '\r') eol--;
+	*eol = '\0';
+}
+
+void irc_rewind_buffer(buf_t *b) {
+	memmove(b->buf, b->nextbuf, b->nextoff);
+	b->off = b->nextoff;
+}
+
+int irc_wait(const sock_t sock, const int outfd, buf_t *b, int cmd) {
 	int n;
 	long start = irc_time();
 	struct pollfd fds[1];
 	fds[0].fd = sock.fd;
 	fds[0].events = POLLIN;
 
-	for (;;) { /* note: reusing callee's buf */
+	for (;;) {
 		if (poll(fds, 1, POLL_TIMEOUT)) {
-			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
+			n = READ(sock, BUF(b), SIZ(b));
 			if (n == 0) return -1; /* server closed connection */
 			if (n == TLS_WANT_POLLIN) continue;
-			write(outfd, buf, n);
-			n = irc_answer(sock, buf, cmd);
+			write(outfd, BUF(b), n);
+
+			irc_terminate_buffer(b, n);
+			n = irc_answer(sock, BUF(b), cmd);
+			irc_rewind_buffer(b);
+
 			if (n & cmd) return 0;
 			if (irc_time() - start > SETUP_TIMEOUT) {
 				fprintf(stderr, "IRC setup timeout\n");
@@ -222,7 +259,7 @@ int irc_wait(const sock_t sock, const int outfd, int cmd, char* buf) {
 	}
 }
 
-int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *pass, int pass_type, const char *chan) {
+int irc_setup(const sock_t sock, const int outfd, buf_t *b, const char *nick, const char *pass, int pass_type, const char *chan) {
 	char buf[BUFSIZ];
 	int n;
 
@@ -253,7 +290,7 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 	}
 
 	/* block until we get a RPL_WELCOME or an error: */
-	n = irc_wait(sock, outfd, NICK, buf);
+	n = irc_wait(sock, outfd, b, NICK);
 	if (n < 0) return n;
 
 	if (chan) {
@@ -261,14 +298,14 @@ int irc_setup(const sock_t sock, const int outfd, const char *nick, const char *
 		WRITE(sock, buf, n);
 
 		/* block until we get a JOIN response or an error: */
-		n = irc_wait(sock, outfd, JOIN, buf);
+		n = irc_wait(sock, outfd, b, JOIN);
 		if (n < 0) return n;
 	}
 
 	return 0;
 }
 
-int irc_poll(const sock_t sock, const int infd, const int outfd) {
+int irc_poll(const sock_t sock, const int infd, const int outfd, buf_t *b) {
 	int n;
 	char buf[BUFSIZ];
 
@@ -287,16 +324,18 @@ int irc_poll(const sock_t sock, const int infd, const int outfd) {
 
 		/* todo: should retry on EINTR, EAGAIN */
 		if (fds[IRC].revents & POLLIN) {
-			n = READ(sock, buf, BUFSIZ); buf[n] = '\0';
+			n = READ(sock, BUF(b), SIZ(b));
 			if (n == 0) return -1; /* server closed connection */
 			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
-			write(outfd, buf, n);
-			if (irc_answer(sock, buf, want_pong?PING:NO_CMD) & PING)
+			write(outfd, BUF(b), n);
+			irc_terminate_buffer(b, n);
+			if (irc_answer(sock, BUF(b), want_pong?PING:NO_CMD) & PING)
 				want_pong = 0;
+			irc_rewind_buffer(b);
 			recv_ts = irc_time();
 		}
 		if (fds[CLI].revents & POLLIN) {
-			n = read(infd, buf, BUFSIZ); buf[n] = '\0';
+			n = read(infd, buf, BUFSIZ);
 			if (n == 0) return 0; /* we closed connection */
 			n = WRITE(sock, buf, n);
 			fds[IRC].events = POLLIN | (n==TLS_WANT_POLLOUT?POLLOUT:0);
@@ -349,11 +388,13 @@ int main(int argc, char **argv) {
 	int tls = DEFAULT_TLS;
 	char *ca_file = NULL;
 	int pass_type = NO_PASSWD;
+	buf_t b;
 
 	int rv;
 	struct sigaction act;
 
 	int opt; opterr = 0;
+	b.off = 0;
 
 	pass = getenv("IRC_PASSWD");
 	ca_file = getenv("IRC_CAFILE");
@@ -412,8 +453,8 @@ int main(int argc, char **argv) {
 	sigaction(SIGTERM, &act, NULL);
 
 	sock = irc_connect(host, port, tls, ca_file); sock.fd OR_DIE;
-	irc_setup(sock, 1, nick, pass, pass_type, chan);
-	rv = irc_poll(sock, 0, 1);
+	irc_setup(sock, 1, &b, nick, pass, pass_type, chan);
+	rv = irc_poll(sock, 0, 1, &b);
 	irc_cleanup(sock);
 
 	return (rv < 0);
