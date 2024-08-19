@@ -388,17 +388,16 @@ int main(int argc, char **argv) {
 	int tls = DEFAULT_TLS;
 	char *ca_file = NULL;
 	int pass_type = NO_PASSWD;
-	buf_t b;
 
-	int rv;
+	int rv, opt;
 	struct sigaction act;
 
-	int opt; opterr = 0;
-	b.off = 0;
+	buf_t b; b.off = 0;
 
 	pass = getenv("IRC_PASSWD");
 	ca_file = getenv("IRC_CAFILE");
 
+	opterr = 0;
 	while ((opt = getopt(argc, argv, "n:j:pPsSkhV")) != -1) {
 		switch (opt) {
 		case 'n': nick = optarg; break;
