@@ -116,13 +116,18 @@ lines from the IRC server unmodified, so it is likely that responses are CR LF
 terminated. If either of this is a problem, a simple pair of input and output
 filters, e.g. unix2dos(1) and dos2unix(1), can be placed around ircpipe.
 
-Note that there is one known vulnerability: we don't guard against escape
-sequences in responses. when used interactively, a bad actor could send
-malicious sequences causing terminal corruption. causing data leaks (by
-querying terminal information) is unlikely, as the responses won't be proper
-irc PRIVMSGs. An output filter (like the included `highlight`) is recommended
-to strip them out.
+### Security Considerations
 
+ircpipe is not hardened against injections. While this is plainly obvious for
+stdin (and indeed the whole point of ircpipe), this also applies to command line
+arguments: they are neither checked for illegal white-space, nor for newlines.
+When arguments are taken from user controlled input, the former allows for
+malformed IRC messages and the latter for outright IRC message injection.
+
+We also don't guard against escape sequences in responses. When used
+interactively, a bad actor could send malicious sequences causing terminal
+corruption. Causing data leaks (by querying terminal information) is unlikely,
+as the responses won't be proper irc PRIVMSGs.
 
 ## Building
 
