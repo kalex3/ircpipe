@@ -456,15 +456,16 @@ int main(int argc, char **argv) {
 	}
 
 	if (!nick || !*nick) {
+		if (pass_type != NO_PASSWD) {
+			fprintf(stderr, PROGNAME": can't authenticate without nick\n");
+			return 1;
+		}
 		nick = irc_randnick();
 		fprintf(stderr, PROGNAME": no nick provided, using randomized '%s'\n", nick);
 	}
 
 	if (pass_type != NO_PASSWD && pass == NULL) {
-		fprintf(stderr,
-			PROGNAME": must set IRC_PASSWD envvar to use -%c\n",
-			pass_type == SASL_PLAIN_PASSWD ? 'P' : 'p'
-		);
+		fprintf(stderr, PROGNAME": IRC_PASSWD envvar is unset or empty\n");
 		return 1;
 	}
 
