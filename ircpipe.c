@@ -357,6 +357,21 @@ int irc_poll(const sock_t sock, const int infd, const int outfd, buf_t *b) {
 	}
 }
 
+char *irc_randnick() {
+	static char *charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ[]\\`^{}0123456789";
+	static char nick[10]; /* xxx: returns a static buffer */
+	int i;
+
+	srand(irc_time());
+
+	nick[0] = charset[rand() % 52];
+	for (i = 1; i < 9; i++)
+		nick[i] = charset[rand() % 70];
+	nick[i] = '\0';
+
+	return nick;
+}
+
 void irc_cleanup(const sock_t sock) {
 	WRITE(sock, "QUIT :ircpipe\r\n", 15);
 	if (sock.tls) {
@@ -436,8 +451,8 @@ int main(int argc, char **argv) {
 	}
 
 	if (!nick || !*nick) {
-		fprintf(stderr, "must provide a nick with -n\n");
-		return 1;
+		nick = irc_randnick();
+		fprintf(stderr, PROGNAME": no nick provided, using randomized '%s'\n", nick);
 	}
 
 	if (pass_type != NO_PASSWD && pass == NULL) {

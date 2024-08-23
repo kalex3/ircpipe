@@ -9,7 +9,7 @@ Sets up an irc connection, and takes care of PINGs and PONGs.
 ircpipe [-pP] [-sSk] [-n NICK] [-j CHAN] HOST [PORT]
 ```
 
-* `-n`: nick to use (mandatory)
+* `-n`: nick to use (defaults to random nick)
 * `-j`: channel to join on connect
 * `-p`: read server password from `$IRC_PASSWD`
 * `-P`: authenticate using SASL PLAIN; reads password from `$IRC_PASSWD`
