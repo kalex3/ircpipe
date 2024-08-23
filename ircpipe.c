@@ -67,7 +67,7 @@ typedef struct {
 #define SIZ(b) (BUFSIZ - b->off)
 
 void irc_help(const char *exe) {
-	fprintf(stderr, "Usage: %s [-pP] [-sSk] [-n NICK] [-j CHAN] HOST [PORT]\n", exe);
+	printf("Usage: %s [-pP] [-sSk] [-n NICK] [-j CHAN] HOST [PORT]\n", exe);
 }
 
 sock_t irc_connect(const char *host, const char *port, const int tls, const char *ca_file) {
@@ -170,7 +170,7 @@ int irc_answer(const sock_t sock, char *buf, const unsigned int command) {
 		if (strncmp(line, "ERROR ", 6)==0) seen |= ERRS;
 
 		if (seen & ERRS) {
-			fprintf(stderr, "IRC error: %s\n", line);
+			fprintf(stderr, PROGNAME": IRC error: %s\n", line);
 			exit(1);
 		}
 
@@ -252,7 +252,7 @@ int irc_wait(const sock_t sock, const int outfd, buf_t *b, int cmd) {
 
 			if (n & cmd) return 0;
 			if (irc_time() - start > SETUP_TIMEOUT) {
-				fprintf(stderr, "IRC setup timeout\n");
+				fprintf(stderr, PROGNAME": IRC setup timeout\n");
 				exit(1);
 			}
 		}
@@ -347,7 +347,7 @@ int irc_poll(const sock_t sock, const int infd, const int outfd, buf_t *b) {
 
 		if (want_pong && irc_time() - recv_ts > PING_INTERVAL + PONG_TIMEOUT) {
 			/* pong timeout reached, abort. */
-			fprintf(stderr, "PONG timeout\n");
+			fprintf(stderr, PROGNAME": PONG timeout\n");
 			return -1;
 		} else if (!want_pong && irc_time() - recv_ts > PING_INTERVAL) {
 			/* haven't rx'd anything in a while, sending ping. */
@@ -412,6 +412,11 @@ int main(int argc, char **argv) {
 	pass = getenv("IRC_PASSWD");
 	ca_file = getenv("IRC_CAFILE");
 
+	if (argc < 2) {
+		irc_help(argv[0]);
+		return 0;
+	}
+
 	opterr = 0;
 	while ((opt = getopt(argc, argv, "n:j:pPsSkhV")) != -1) {
 		switch (opt) {
@@ -425,7 +430,7 @@ int main(int argc, char **argv) {
 		case 'V': printf(PROGNAME " " VERSION "\n"); return 0;
 		case 'h': irc_help(argv[0]); return 0;
 		default:
-			printf("unrecognized argument -%c\n", optopt);
+			fprintf(stderr, PROGNAME": unrecognized argument -%c\n", optopt);
 			return 1;
 		}
 	}
@@ -434,7 +439,7 @@ int main(int argc, char **argv) {
 		host = argv[optind++];
 	} else {
 		/* too few positional arguments */
-		fprintf(stderr, "missing HOST\n");
+		fprintf(stderr, PROGNAME": HOST argument missing\n");
 		return 1;
 	}
 	if (optind < argc) {
@@ -446,7 +451,7 @@ int main(int argc, char **argv) {
 	}
 	if (optind < argc) {
 		/* too many positional arguments */
-		fprintf(stderr, "too many args\n");
+		fprintf(stderr, PROGNAME": too many args\n");
 		return 1;
 	}
 
@@ -456,7 +461,10 @@ int main(int argc, char **argv) {
 	}
 
 	if (pass_type != NO_PASSWD && pass == NULL) {
-		fprintf(stderr, "must set IRC_PASSWD envvar to use -p/-P\n");
+		fprintf(stderr,
+			PROGNAME": must set IRC_PASSWD envvar to use -%c\n",
+			pass_type == SASL_PLAIN_PASSWD ? 'P' : 'p'
+		);
 		return 1;
 	}
 
