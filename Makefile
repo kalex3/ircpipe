@@ -1,3 +1,3 @@
-CFLAGS ?= -std=c89 -Wall -Wextra -Wpedantic -g
-LDFLAGS = -ltls
+CFLAGS ?= -std=c89 -Wall -Wextra -Wpedantic
+LDFLAGS = -ltls -s
 all: ircpipe
